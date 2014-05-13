@@ -458,26 +458,31 @@ int ovs_flow_extract(struct sk_buff *skb, u16 in_port, struct sw_flow_key *key)
 
 	skb_reset_mac_header(skb);
 
-	/* Link layer.  We are guaranteed to have at least the 14 byte Ethernet
-	 * header in the linear data area.
-	 */
-	eth = eth_hdr(skb);
-	ether_addr_copy(key->eth.src, eth->h_source);
-	ether_addr_copy(key->eth.dst, eth->h_dest);
+	/* Link layer. */
+	if (OVS_CB(skb)->is_layer3) {
+		/* The receiving L3 vport should set the inner packet protocol
+		 * on the skb.  We use that here to set eth.type */
+		key->phy.noeth = true;
+		key->eth.type = skb->protocol;
+	} else {
+		eth = eth_hdr(skb);
+		ether_addr_copy(key->eth.src, eth->h_source);
+		ether_addr_copy(key->eth.dst, eth->h_dest);
 
-	__skb_pull(skb, 2 * ETH_ALEN);
-	/* We are going to push all headers that we pull, so no need to
- 	 * update skb->csum here. */
+		__skb_pull(skb, 2 * ETH_ALEN);
+		/* We are going to push all headers that we pull, so no need to
+		 * update skb->csum here. */
 
-	if (vlan_tx_tag_present(skb))
-		key->eth.tci = htons(vlan_get_tci(skb));
-	else if (eth->h_proto == htons(ETH_P_8021Q))
-		if (unlikely(parse_vlan(skb, key)))
+		if (vlan_tx_tag_present(skb))
+			key->eth.tci = htons(vlan_get_tci(skb));
+		else if (eth->h_proto == htons(ETH_P_8021Q))
+			if (unlikely(parse_vlan(skb, key)))
+				return -ENOMEM;
+
+		key->eth.type = parse_ethertype(skb);
+		if (unlikely(key->eth.type == htons(0)))
 			return -ENOMEM;
-
-	key->eth.type = parse_ethertype(skb);
-	if (unlikely(key->eth.type == htons(0)))
-		return -ENOMEM;
+	}
 
 	skb_reset_network_header(skb);
 	__skb_push(skb, skb->data - skb_mac_header(skb));

@@ -76,7 +76,7 @@ static struct net_device_stats *internal_dev_sys_stats(struct net_device *netdev
 static int internal_dev_xmit(struct sk_buff *skb, struct net_device *netdev)
 {
 	rcu_read_lock();
-	ovs_vport_receive(internal_dev_priv(netdev)->vport, skb, NULL);
+	ovs_vport_receive(internal_dev_priv(netdev)->vport, skb, NULL, false);
 	rcu_read_unlock();
 	return 0;
 }
@@ -235,6 +235,9 @@ static int internal_dev_recv(struct vport *vport, struct sk_buff *skb)
 {
 	struct net_device *netdev = netdev_vport_priv(vport)->dev;
 	int len;
+
+	if (unlikely(OVS_CB(skb)->is_layer3))
+		return -EINVAL;
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,37)
 	if (vlan_tx_tag_present(skb)) {

@@ -219,8 +219,6 @@ static int lisp_rcv(struct sock *sk, struct sk_buff *skb)
 	struct iphdr *iph, *inner_iph;
 	struct ovs_key_ipv4_tunnel tun_key;
 	__be64 key;
-	struct ethhdr *ethh;
-	__be16 protocol;
 
 	lisp_port = lisp_find_port(dev_net(skb->dev), udp_hdr(skb)->dest);
 	if (unlikely(!lisp_port))
@@ -244,26 +242,16 @@ static int lisp_rcv(struct sock *sk, struct sk_buff *skb)
 	inner_iph = (struct iphdr *)(lisph + 1);
 	switch (inner_iph->version) {
 	case 4:
-		protocol = htons(ETH_P_IP);
+		skb->protocol = htons(ETH_P_IP);
 		break;
 	case 6:
-		protocol = htons(ETH_P_IPV6);
+		skb->protocol = htons(ETH_P_IPV6);
 		break;
 	default:
 		goto error;
 	}
-	skb->protocol = protocol;
 
-	/* Add Ethernet header */
-	ethh = (struct ethhdr *)skb_push(skb, ETH_HLEN);
-	memset(ethh, 0, ETH_HLEN);
-	ethh->h_dest[0] = 0x02;
-	ethh->h_source[0] = 0x02;
-	ethh->h_proto = protocol;
-
-	ovs_skb_postpush_rcsum(skb, skb->data, ETH_HLEN);
-
-	ovs_vport_receive(vport_from_priv(lisp_port), skb, &tun_key);
+	ovs_vport_receive(vport_from_priv(lisp_port), skb, &tun_key, true);
 	goto out;
 
 error:
@@ -429,6 +417,9 @@ static int lisp_send(struct vport *vport, struct sk_buff *skb)
 	if (unlikely(!OVS_CB(skb)->tun_key))
 		return -EINVAL;
 
+	if (unlikely(!OVS_CB(skb)->is_layer3))
+		return -EINVAL;
+
 	if (skb->protocol != htons(ETH_P_IP) &&
 	    skb->protocol != htons(ETH_P_IPV6)) {
 		kfree_skb(skb);
@@ -461,11 +452,6 @@ static int lisp_send(struct vport *vport, struct sk_buff *skb)
 		if (unlikely(err))
 			goto err_free_rt;
 	}
-
-	/* Reset l2 headers. */
-	skb_pull(skb, network_offset);
-	skb_reset_mac_header(skb);
-	vlan_set_tci(skb, 0);
 
 	skb_reset_inner_headers(skb);
 

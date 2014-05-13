@@ -107,6 +107,7 @@ struct ovs_skb_cb {
 	struct sw_flow_key	*pkt_key;
 	struct ovs_key_ipv4_tunnel  *tun_key;
 	struct vport	*input_vport;
+	bool is_layer3;
 };
 #define OVS_CB(skb) ((struct ovs_skb_cb *)(skb)->cb)
 

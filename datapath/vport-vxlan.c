@@ -70,7 +70,7 @@ static void vxlan_rcv(struct vxlan_sock *vs, struct sk_buff *skb, __be32 vx_vni)
 	key = cpu_to_be64(ntohl(vx_vni) >> 8);
 	ovs_flow_tun_key_init(&tun_key, iph, key, TUNNEL_KEY);
 
-	ovs_vport_receive(vport, skb, &tun_key);
+	ovs_vport_receive(vport, skb, &tun_key, false);
 }
 
 static int vxlan_get_options(const struct vport *vport, struct sk_buff *skb)
@@ -151,6 +151,11 @@ static int vxlan_tnl_send(struct vport *vport, struct sk_buff *skb)
 	int err;
 
 	if (unlikely(!OVS_CB(skb)->tun_key)) {
+		err = -EINVAL;
+		goto error;
+	}
+
+	if (unlikely(OVS_CB(skb)->is_layer3)) {
 		err = -EINVAL;
 		goto error;
 	}
