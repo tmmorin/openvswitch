@@ -26,6 +26,7 @@
 #include "hmap.h"
 #include "openflow/openflow.h"
 #include "util.h"
+#include "packets.h"
 
 struct ds;
 struct flow;
@@ -233,6 +234,11 @@ BUILD_ASSERT_DECL(sizeof(union user_action_cookie) == 16);
 size_t odp_put_userspace_action(uint32_t pid,
                                 const void *userdata, size_t userdata_size,
                                 struct ofpbuf *odp_actions);
+void odp_put_pop_eth_action(struct ofpbuf *odp_actions);
+void odp_put_push_eth_action(struct ofpbuf *odp_actions,
+                             const uint8_t eth_src[ETH_ADDR_LEN],
+                             const uint8_t eth_dst[ETH_ADDR_LEN],
+                             const ovs_be16 eth_type);
 void odp_put_tunnel_action(const struct flow_tnl *tunnel,
                            struct ofpbuf *odp_actions);
 void odp_put_pkt_mark_action(const uint32_t pkt_mark,

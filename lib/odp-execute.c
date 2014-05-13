@@ -219,6 +219,18 @@ odp_execute_actions__(void *dp, struct ofpbuf *packet, bool steal,
             }
             break;
 
+        case OVS_ACTION_ATTR_PUSH_ETH: {
+            const struct ovs_action_push_eth *eth = nl_attr_get(a);
+            push_eth(packet, eth->addresses.eth_dst, eth->addresses.eth_src,
+                     eth->eth_type);
+            break;
+        }
+
+        case OVS_ACTION_ATTR_POP_ETH: {
+            pop_eth(packet);
+            break;
+        }
+
         case OVS_ACTION_ATTR_PUSH_VLAN: {
             const struct ovs_action_push_vlan *vlan = nl_attr_get(a);
             eth_push_vlan(packet, htons(ETH_TYPE_VLAN), vlan->vlan_tci);
