@@ -2525,7 +2525,7 @@ odp_flow_key_from_flow__(struct ofpbuf *buf, const struct flow *flow,
                          size_t max_mpls_depth, bool export_mask)
 {
     struct ovs_key_ethernet *eth_key;
-    size_t encap;
+    size_t encap = 0;
     const struct flow *data = export_mask ? mask : flow;
 
     nl_msg_put_u32(buf, OVS_KEY_ATTR_PRIORITY, data->skb_priority);
@@ -2550,6 +2550,10 @@ odp_flow_key_from_flow__(struct ofpbuf *buf, const struct flow *flow,
         nl_msg_put_odp_port(buf, OVS_KEY_ATTR_IN_PORT, odp_in_port);
     }
 
+    if (flow->base_layer == LAYER_3) {
+        goto noethernet;
+    }
+
     eth_key = nl_msg_put_unspec_uninit(buf, OVS_KEY_ATTR_ETHERNET,
                                        sizeof *eth_key);
     memcpy(eth_key->eth_src, data->dl_src, ETH_ADDR_LEN);
@@ -2566,8 +2570,6 @@ odp_flow_key_from_flow__(struct ofpbuf *buf, const struct flow *flow,
         if (flow->vlan_tci == htons(0)) {
             goto unencap;
         }
-    } else {
-        encap = 0;
     }
 
     if (ntohs(flow->dl_type) < ETH_TYPE_MIN) {
@@ -2590,6 +2592,7 @@ odp_flow_key_from_flow__(struct ofpbuf *buf, const struct flow *flow,
 
     nl_msg_put_be16(buf, OVS_KEY_ATTR_ETHERTYPE, data->dl_type);
 
+noethernet:
     if (flow->dl_type == htons(ETH_TYPE_IP)) {
         struct ovs_key_ipv4 *ipv4_key;
 
@@ -2982,7 +2985,13 @@ parse_ethertype(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
         *expected_attrs |= UINT64_C(1) << OVS_KEY_ATTR_ETHERTYPE;
     } else {
         if (!is_mask) {
-            flow->dl_type = htons(FLOW_DL_TYPE_NONE);
+            if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_IPV4)) {
+                flow->dl_type = htons(ETH_TYPE_IP);
+            } else if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_IPV6)) {
+                flow->dl_type = htons(ETH_TYPE_IPV6);
+            } else {
+                flow->dl_type = htons(FLOW_DL_TYPE_NONE);
+            }
         } else if (ntohs(src_flow->dl_type) < ETH_TYPE_MIN) {
             /* See comments in odp_flow_key_from_flow__(). */
             VLOG_ERR_RL(&rl, "mask expected for non-Ethernet II frame");
@@ -3396,12 +3405,10 @@ odp_flow_key_to_flow__(const struct nlattr *key, size_t key_len,
         eth_key = nl_attr_get(attrs[OVS_KEY_ATTR_ETHERNET]);
         memcpy(flow->dl_src, eth_key->eth_src, ETH_ADDR_LEN);
         memcpy(flow->dl_dst, eth_key->eth_dst, ETH_ADDR_LEN);
-        if (is_mask) {
-            expected_attrs |= UINT64_C(1) << OVS_KEY_ATTR_ETHERNET;
-        }
-    }
-    if (!is_mask) {
+        flow->base_layer = LAYER_2;
         expected_attrs |= UINT64_C(1) << OVS_KEY_ATTR_ETHERNET;
+    } else {
+        flow->base_layer = LAYER_3;
     }
 
     /* Get Ethertype or 802.1Q TPID or FLOW_DL_TYPE_NONE. */
@@ -3596,6 +3603,14 @@ commit_set_ether_addr_action(const struct flow *flow, struct flow *base,
 
     if (eth_addr_equals(base->dl_src, flow->dl_src) &&
         eth_addr_equals(base->dl_dst, flow->dl_dst)) {
+        return;
+    }
+
+    /* If we have a L3 --> L2 flow, the push_eth action takes care of setting
+     * the appropriate MAC source and destination addresses, no need to add a
+     * set action
+     */
+    if (base->base_layer == LAYER_3 && flow->base_layer == LAYER_2) {
         return;
     }
 

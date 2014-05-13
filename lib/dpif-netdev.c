@@ -2076,6 +2076,11 @@ dp_netdev_output_userspace(struct dp_netdev *dp, struct ofpbuf *packet,
         ofpbuf_set_data(&upcall->packet,
                         ofpbuf_put(buf, ofpbuf_data(packet), ofpbuf_size(packet)));
         ofpbuf_set_size(&upcall->packet, ofpbuf_size(packet));
+	if (packet->frame == ofpbuf_data(packet)) {
+	    upcall->packet.frame = ofpbuf_data(&upcall->packet);
+	    upcall->packet.l2_5_ofs = packet->l2_5_ofs;
+	    upcall->packet.l3_ofs = packet->l3_ofs;
+	}
 
         seq_change(q->seq);
 

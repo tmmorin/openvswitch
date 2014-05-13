@@ -1363,7 +1363,8 @@ dpif_recv(struct dpif *dpif, uint32_t handler_id, struct dpif_upcall *upcall,
         char *packet;
 
         packet = ofp_packet_to_string(ofpbuf_data(&upcall->packet),
-                                      ofpbuf_size(&upcall->packet));
+                                      ofpbuf_size(&upcall->packet),
+                                      ofpbuf_is_layer3_packet(&upcall->packet));
 
         ds_init(&flow);
         odp_flow_key_format(upcall->key, upcall->key_len, &flow);
@@ -1567,7 +1568,8 @@ log_execute_message(struct dpif *dpif, const struct dpif_execute *execute,
         char *packet;
 
         packet = ofp_packet_to_string(ofpbuf_data(execute->packet),
-                                      ofpbuf_size(execute->packet));
+                                      ofpbuf_size(execute->packet),
+                                      ofpbuf_is_layer3_packet(execute->packet));
         ds_put_format(&ds, "%s: execute ", dpif_name(dpif));
         format_odp_actions(&ds, execute->actions, execute->actions_len);
         if (error) {

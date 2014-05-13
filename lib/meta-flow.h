@@ -189,6 +189,7 @@ enum OVS_PACKED_ENUM mf_prereqs {
     MFP_NONE,
 
     /* L2 requirements. */
+    MFP_ETHERNET,
     MFP_ARP,
     MFP_VLAN_VID,
     MFP_IPV4,

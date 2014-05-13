@@ -1009,6 +1009,7 @@ netdev_linux_rxq_recv(struct netdev_rxq *rxq_, struct ofpbuf **packet, int *c)
         }
         ofpbuf_delete(buffer);
     } else {
+	ofpbuf_set_frame(buffer, ofpbuf_data(buffer));
         dp_packet_pad(buffer);
         packet[0] = buffer;
         *c = 1;

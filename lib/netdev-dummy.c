@@ -777,6 +777,7 @@ netdev_dummy_rxq_recv(struct netdev_rxq *rxq_, struct ofpbuf **arr, int *c)
     netdev->stats.rx_bytes += ofpbuf_size(packet);
     ovs_mutex_unlock(&netdev->mutex);
 
+    ofpbuf_set_frame(packet, ofpbuf_data(packet));
     dp_packet_pad(packet);
     arr[0] = packet;
     *c = 1;

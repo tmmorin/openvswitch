@@ -1710,6 +1710,14 @@ parse_odp_packet(struct ofpbuf *buf, struct dpif_upcall *upcall,
     ofpbuf_set_data(&upcall->packet,
                     (char *)ofpbuf_data(&upcall->packet) + sizeof(struct nlattr));
     ofpbuf_set_size(&upcall->packet, nl_attr_get_size(a[OVS_PACKET_ATTR_PACKET]));
+    ofpbuf_set_frame(&upcall->packet, ofpbuf_data(&upcall->packet));
+
+    /* Set the correct layer based on the presence of OVS_KEY_ATTR_ETHERNET */
+    if (nl_attr_find__(upcall->key, upcall->key_len, OVS_KEY_ATTR_ETHERNET)) {
+	ofpbuf_set_l3(&upcall->packet, NULL);
+    } else {
+        upcall->packet.l3_ofs = 0;
+    }
 
     *dp_ifindex = ovs_header->dp_ifindex;
 
