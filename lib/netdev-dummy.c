@@ -832,6 +832,7 @@ netdev_dummy_rxq_recv(struct netdev_rxq *rxq_, struct dpif_packet **arr,
     netdev->stats.rx_bytes += ofpbuf_size(packet);
     ovs_mutex_unlock(&netdev->mutex);
 
+    ofpbuf_set_frame(packet, ofpbuf_data(packet));
     dp_packet_pad(packet);
 
     /* This performs a (sometimes unnecessary) copy */
