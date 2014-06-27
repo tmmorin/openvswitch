@@ -615,6 +615,16 @@ struct ovs_action_push_eth {
 };
 
 /**
+ * struct ovs_action_push_eth - %OVS_ACTION_ATTR_PUSH_ETH action argument.
+ * @addresses: Source and destination MAC addresses.
+ * @eth_type: Ethernet type
+ */
+struct ovs_action_push_eth {
+	struct ovs_key_ethernet addresses;
+	__be16	 eth_type;
+};
+
+/**
  * enum ovs_action_attr - Action types.
  *
  * @OVS_ACTION_ATTR_OUTPUT: Output packet to port.
