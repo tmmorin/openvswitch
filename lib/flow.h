@@ -38,7 +38,11 @@ struct pkt_metadata;
 /* This sequence number should be incremented whenever anything involving flows
  * or the wildcarding of flows changes.  This will cause build assertion
  * failures in places which likely need to be updated. */
+<<<<<<< HEAD
 #define FLOW_WC_SEQ 29
+=======
+#define FLOW_WC_SEQ 28
+>>>>>>> userspace: add layer 3 flow and switching support
 
 /* Number of Open vSwitch extension 32-bit registers. */
 #define FLOW_N_REGS 8
@@ -111,8 +115,11 @@ struct flow {
     uint32_t pkt_mark;          /* Packet mark. */
     uint32_t recirc_id;         /* Must be exact match. */
     union flow_in_port in_port; /* Input port.*/
+<<<<<<< HEAD
     ofp_port_t actset_output;   /* Output port in action set. */
     ovs_be16 pad1;              /* Pad to 32 bits. */
+=======
+>>>>>>> userspace: add layer 3 flow and switching support
     uint32_t base_layer;        /* Fields start at this layer */
 
     /* L2, Order the same as in the Ethernet header! */
@@ -166,8 +173,13 @@ BUILD_ASSERT_DECL(sizeof(struct flow) % 4 == 0);
 
 /* Remember to update FLOW_WC_SEQ when changing 'struct flow'. */
 BUILD_ASSERT_DECL(offsetof(struct flow, dp_hash) + sizeof(uint32_t)
+<<<<<<< HEAD
                   == sizeof(struct flow_tnl) + 184
                   && FLOW_WC_SEQ == 29);
+=======
+                  == sizeof(struct flow_tnl) + 180
+                  && FLOW_WC_SEQ == 28);
+>>>>>>> userspace: add layer 3 flow and switching support
 
 /* Incremental points at which flow classification may be performed in
  * segments.
