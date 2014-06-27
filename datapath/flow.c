@@ -700,7 +700,8 @@ int ovs_flow_key_update(struct sk_buff *skb, struct sw_flow_key *key)
 }
 
 int ovs_flow_key_extract(const struct ovs_tunnel_info *tun_info,
-			 struct sk_buff *skb, struct sw_flow_key *key,
+			 struct sk_buff *skb,
+			 struct sw_flow_key *key,
 			 bool is_layer3)
 {
 	/* Extract metadata from packet. */
