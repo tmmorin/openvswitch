@@ -23,4 +23,4 @@ script: ./.travis/build.sh $OPTS
 notifications:
   email:
     recipients:
-      - secure: V7W+NdS3L1aXCMUo2EBmOIHeQHT76r78p3f25XFISz8D4a2FnXA2ydwQVbhiZxa+TRgrskY/iB5GU1fS70+qmIaGxnGAVRV8lIQVshoiaKuxvMcha0FdN4d44i1AmLiM2DK8r5k3+fEWTQCvq9mrXQnDJVEPpYfVGj5+b+9oBx8=
+      - secure: KvLIamml/jrttYgh1B671IPac8T+xSnwkq4jXgSXk/SIVTIIL7BoXht/EGxh1SB6RjFSv4c/gIxGMUuk66Ekh/IzzDemNbkd2gA64svWKfcZD2Pbm0gFDSBkEBpT9hh3clI6reSfF6YVFLOU7DO7//JOmfMYrsefxGaXErmCrUs=
