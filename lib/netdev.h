@@ -129,6 +129,7 @@ struct netdev_tunnel_config {
     bool csum;
     bool ipsec;
     bool dont_fragment;
+    bool l3port;
 };
 
 void netdev_run(void);
