@@ -142,7 +142,9 @@ netdev_vport_is_layer3(const struct netdev *dev)
 {
     const char *type = netdev_get_type(dev);
 
-    return (!strcmp("lisp", type));
+    return (!strcmp("lisp", type) ||
+            ( !strcmp("gre", type) && get_netdev_tunnel_config(dev)->l3port)
+           );
 }
 
 static bool
