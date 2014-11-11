@@ -201,6 +201,7 @@ struct flow_metadata {
     uint32_t regs[FLOW_N_REGS];      /* Registers. */
     uint32_t pkt_mark;               /* Packet mark. */
     ofp_port_t in_port;              /* OpenFlow port or zero. */
+    uint32_t base_layer;             /* Fields start at this layer */
 };
 
 void flow_extract(struct ofpbuf *, const struct pkt_metadata *md,
@@ -718,6 +719,7 @@ pkt_metadata_from_flow(const struct flow *flow)
     md.skb_priority = flow->skb_priority;
     md.pkt_mark = flow->pkt_mark;
     md.in_port = flow->in_port;
+    md.base_layer = flow->base_layer;
 
     return md;
 }

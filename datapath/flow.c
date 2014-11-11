@@ -353,6 +353,18 @@ static __be16 parse_ethertype(struct sk_buff *skb)
 	return htons(ETH_P_802_2);
 }
 
+static __be16 ethertype_from_ip_version(struct sk_buff *skb)
+{
+	struct iphdr *iphdr = ip_hdr(skb);
+
+	if (iphdr->version == 4)
+		return htons(ETH_P_IP);
+	else if (iphdr->version == 6)
+		return htons(ETH_P_IPV6);
+
+	return 0;
+}
+
 static int parse_icmpv6(struct sk_buff *skb, struct sw_flow_key *key,
 			int nh_len)
 {
@@ -461,7 +473,10 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 
 	/* Link layer. */
 	if (key->phy.is_layer3) {
-		key->eth.type = skb->protocol;
+		skb_reset_network_header(skb);
+
+		key->eth.tci = 0;
+		key->eth.type = ethertype_from_ip_version(skb);
 	} else {
 		eth = eth_hdr(skb);
 		ether_addr_copy(key->eth.src, eth->h_source);
@@ -482,9 +497,10 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 		key->eth.type = parse_ethertype(skb);
 		if (unlikely(key->eth.type == htons(0)))
 			return -ENOMEM;
+
+		skb_reset_network_header(skb);
 	}
 
-	skb_reset_network_header(skb);
 	skb_reset_mac_len(skb);
 	__skb_push(skb, skb->data - skb_mac_header(skb));
 
