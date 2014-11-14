@@ -133,6 +133,20 @@ static int make_writable(struct sk_buff *skb, int write_len)
 	return pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
 }
 
+/* The end of the mac header.
+ *
+ * For non-MPLS skbs this will correspond to the network header.
+ * For MPLS skbs it will be before the network_header as the MPLS
+ * label stack lies between the end of the mac header and the network
+ * header. That is, for MPLS skbs the end of the mac header
+ * is the top of the MPLS label stack.
+ */
+static unsigned char *mac_header_end(const struct sk_buff *skb)
+{
+	printk(KERN_WARNING "skb->mac_len: %d", skb->mac_len);
+	return skb_mac_header(skb) + skb->mac_len;
+}
+
 static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 		     const struct ovs_action_push_mpls *mpls)
 {
@@ -174,6 +188,8 @@ static int pop_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	struct ethhdr *hdr;
 	int err;
 
+	printk(KERN_WARNING "skb->mac_len: %d", skb->mac_len);
+
 	err = make_writable(skb, skb->mac_len + MPLS_HLEN);
 	if (unlikely(err))
 		return err;
@@ -189,14 +205,15 @@ static int pop_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	__skb_pull(skb, MPLS_HLEN);
 	skb_reset_mac_header(skb);
 
-	/* skb_mpls_header() is used to locate the ethertype
-	 * field correctly in the presence of VLAN tags.
-	 */
-	hdr = (struct ethhdr *)(skb_mpls_header(skb) - ETH_HLEN);
-	hdr->h_proto = ethertype;
+	if (!key->phy.is_layer3) {
+		/* mac_header_end() is used to locate the ethertype
+		 * field correctly in the presence of VLAN tags.
+		 */
+		hdr = (struct ethhdr *)(mac_header_end(skb) - ETH_HLEN);
+		hdr->h_proto = ethertype;
+	}
 	if (eth_p_mpls(skb->protocol))
-		skb->protocol = ethertype;
-
+		skb->protocol = ethertype;   
 	invalidate_flow_key(key);
 	return 0;
 }

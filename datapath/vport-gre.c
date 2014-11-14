@@ -76,11 +76,12 @@ static struct sk_buff *__build_header(struct sk_buff *skb,
 
 	tpi.flags = filter_tnl_flags(tun_key->tun_flags) | gre64_flag;
 
-	if( !OVS_CB(skb)->is_layer3 ) {
-		tpi.proto = htons(ETH_P_TEB);
-        } else {
+	/*FIXME: use the vport type, or see if skb->protocol can be used */
+	//if( !OVS_CB(skb)->is_layer3 ) {
+	//	tpi.proto = htons(ETH_P_TEB);
+        //} else {
 		tpi.proto = skb->protocol;
-	}
+	//}
 	tpi.key = be64_get_low32(tun_key->tun_id);
 	tpi.seq = seq;
 	gre_build_header(skb, &tpi, tunnel_hlen);
@@ -118,12 +119,8 @@ static int gre_rcv(struct sk_buff *skb,
 	ovs_flow_tun_info_init(&tun_info, ip_hdr(skb), 0, 0, key,
 			       filter_tnl_flags(tpi->flags), NULL, 0);
 
-	if (tpi->proto == htons(ETH_P_TEB)) {
-		ovs_vport_receive(vport, skb, &tun_info, false);
-	} else {
-		skb->protocol = tpi->proto;
-		ovs_vport_receive(vport, skb, &tun_info, true);
-	}
+	ovs_vport_receive(vport, skb, &tun_info, 
+		(tpi->proto != htons(ETH_P_TEB)));
 
 	return PACKET_RCVD;
 }

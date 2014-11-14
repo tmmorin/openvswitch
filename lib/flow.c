@@ -445,10 +445,28 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
     } else {
         miniflow_push_uint32(mf, base_layer, LAYER_3);
 
-        /* We assume L3 packets are either IPv4 or IPv6 */
-        dl_type = get_l3_eth_type(packet);
-        miniflow_push_be16(mf, dl_type, dl_type);
-        miniflow_push_be16(mf, vlan_tci, 0);
+    	if (md && md->tunnel.ethertype) {
+		dl_type = md->tunnel.ethertype;
+
+		/* Parse mpls.  ---- FIXME: to factor-out with the above ----*/
+		if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
+		    int count;
+		    const void *mpls = data;
+
+		    packet->l2_5_ofs = (char *)data - frame;
+		    count = parse_mpls(&data, &size);
+		    miniflow_push_words(mf, mpls_lse, mpls, count);
+		}
+
+                /* Network layer. */
+		/** FIXME ------- not true for all packets, needs to be correctly handled with a pop_mpls -> set ethertype */
+                packet->l3_ofs = (char *)data - frame;
+	} else {
+		/* We assume L3 packets are either IPv4 or IPv6 */
+		dl_type = get_l3_eth_type(packet);
+		miniflow_push_be16(mf, dl_type, dl_type);
+		miniflow_push_be16(mf, vlan_tci, 0);
+	}
     }
 
 =======
