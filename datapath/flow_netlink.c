@@ -707,14 +707,13 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 			__be16 ethtype;
 			SW_FLOW_KEY_PUT(match, phy.is_layer3, true, is_mask);
 
-
 			/* test below will fail because attrs bit unset ?.*/
-			if (*attrs & (1ULL << OVS_KEY_ATTR_TUNNEL)) {
+			//if (*attrs & (1ULL << OVS_KEY_ATTR_TUNNEL)) {
 			//ethtype = ethtype_from_nlattr(a[OVS_KEY_ATTR_TUNNEL], match,
 			//		 is_mask, log)
 				/* copy ATTR_TUNNEL_ETHTYPE into .type */
-				SW_FLOW_KEY_PUT(match, eth.type, ethtype, is_mask);
-			}
+			//	SW_FLOW_KEY_PUT(match, eth.type, ethtype, is_mask);
+			//}
 		}
 	}
 	return 0;
