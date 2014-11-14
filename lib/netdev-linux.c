@@ -1053,6 +1053,7 @@ netdev_linux_rxq_recv(struct netdev_rxq *rxq_, struct dpif_packet **packets,
         }
         dpif_packet_delete(packet);
     } else {
+        ofpbuf_set_frame(buffer, ofpbuf_data(buffer));
         dp_packet_pad(buffer);
         dpif_packet_set_dp_hash(packet, 0);
         packets[0] = packet;
