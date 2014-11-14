@@ -351,6 +351,7 @@ enum ovs_tunnel_key_attr {
 	OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS,        /* Array of Geneve options. */
 	OVS_TUNNEL_KEY_ATTR_TP_SRC,		/* be16 src Transport Port. */
 	OVS_TUNNEL_KEY_ATTR_TP_DST,		/* be16 dst Transport Port. */
+	OVS_TUNNEL_KEY_ATTR_ETHTYPE,		/* be16 dst Transport Port. */
 	__OVS_TUNNEL_KEY_ATTR_MAX
 };
 
@@ -603,16 +604,6 @@ struct ovs_action_push_tnl {
 	uint8_t  header[TNL_PUSH_HEADER_SIZE];
 };
 #endif
-
-/**
- * struct ovs_action_push_eth - %OVS_ACTION_ATTR_PUSH_ETH action argument.
- * @addresses: Source and destination MAC addresses.
- * @eth_type: Ethernet type
- */
-struct ovs_action_push_eth {
-	struct ovs_key_ethernet addresses;
-	__be16	 eth_type;
-};
 
 /**
  * struct ovs_action_push_eth - %OVS_ACTION_ATTR_PUSH_ETH action argument.

@@ -267,6 +267,7 @@ size_t ovs_tun_key_attr_size(void)
 		+ nla_total_size(256)  /* OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS */
 		+ nla_total_size(2)    /* OVS_TUNNEL_KEY_ATTR_TP_SRC */
 		+ nla_total_size(2);   /* OVS_TUNNEL_KEY_ATTR_TP_DST */
+		+ nla_total_size(2);   /* OVS_TUNNEL_KEY_ATTR_ETHTYPE */
 }
 
 size_t ovs_key_attr_size(void)
@@ -468,6 +469,7 @@ static int ipv4_tun_from_nlattr(const struct nlattr *attr,
 			[OVS_TUNNEL_KEY_ATTR_TP_DST] = sizeof(u16),
 			[OVS_TUNNEL_KEY_ATTR_OAM] = 0,
 			[OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS] = -1,
+			[OVS_TUNNEL_KEY_ATTR_ETHTYPE] = sizeof(u16),
 		};
 
 		if (type > OVS_TUNNEL_KEY_ATTR_MAX) {
@@ -530,6 +532,10 @@ static int ipv4_tun_from_nlattr(const struct nlattr *attr,
 
 			tun_flags |= TUNNEL_OPTIONS_PRESENT;
 			break;
+		case OVS_TUNNEL_KEY_ATTR_ETHTYPE:
+			SW_FLOW_KEY_PUT(match, eth.type,
+					nla_get_be16(a), is_mask);
+			break;
 		default:
 			OVS_NLERR(log, "Unknown IPv4 tunnel attribute %d",
 				  type);
@@ -562,6 +568,7 @@ static int ipv4_tun_from_nlattr(const struct nlattr *attr,
 
 static int __ipv4_tun_to_nlattr(struct sk_buff *skb,
 				const struct ovs_key_ipv4_tunnel *output,
+				const struct sw_flow_key *swkey,
 				const struct geneve_opt *tun_opts,
 				int swkey_tun_opts_len)
 {
@@ -599,11 +606,16 @@ static int __ipv4_tun_to_nlattr(struct sk_buff *skb,
 		    swkey_tun_opts_len, tun_opts))
 		return -EMSGSIZE;
 
+	if (swkey.phy->is_layer3 &&
+	    nla_put_be16(skb, OVS_TUNNEL_KEY_ATTR_ETHTYPE, skb->protocol))
+		return -EMSGSIZE;
+		
 	return 0;
 }
 
 static int ipv4_tun_to_nlattr(struct sk_buff *skb,
 			      const struct ovs_key_ipv4_tunnel *output,
+		              const struct sw_flow_key *swkey,
 			      const struct geneve_opt *tun_opts,
 			      int swkey_tun_opts_len)
 {
@@ -614,7 +626,7 @@ static int ipv4_tun_to_nlattr(struct sk_buff *skb,
 	if (!nla)
 		return -EMSGSIZE;
 
-	err = __ipv4_tun_to_nlattr(skb, output, tun_opts, swkey_tun_opts_len);
+	err = __ipv4_tun_to_nlattr(skb, output, swkey, tun_opts, swkey_tun_opts_len);
 	if (err)
 		return err;
 
@@ -626,6 +638,7 @@ int ovs_nla_put_egress_tunnel_key(struct sk_buff *skb,
 				  const struct ovs_tunnel_info *egress_tun_info)
 {
 	return __ipv4_tun_to_nlattr(skb, &egress_tun_info->tunnel,
+				    NULL,
 				    egress_tun_info->options,
 				    egress_tun_info->options_len);
 }
@@ -681,6 +694,7 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 		if (ipv4_tun_from_nlattr(a[OVS_KEY_ATTR_TUNNEL], match,
 					 is_mask, log))
 			return -EINVAL;
+
 		*attrs &= ~(1ULL << OVS_KEY_ATTR_TUNNEL);
 	}
 	if (is_mask)
@@ -689,8 +703,19 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 	else {
 		if (*attrs & (1ULL << OVS_KEY_ATTR_ETHERNET))
 			SW_FLOW_KEY_PUT(match, phy.is_layer3, false, is_mask);
-		else
+		else {
+			__be16 ethtype;
 			SW_FLOW_KEY_PUT(match, phy.is_layer3, true, is_mask);
+
+
+			/* test below will fail because attrs bit unset ?.*/
+			if (*attrs & (1ULL << OVS_KEY_ATTR_TUNNEL)) {
+			//ethtype = ethtype_from_nlattr(a[OVS_KEY_ATTR_TUNNEL], match,
+			//		 is_mask, log)
+				/* copy ATTR_TUNNEL_ETHTYPE into .type */
+				SW_FLOW_KEY_PUT(match, eth.type, ethtype, is_mask);
+			}
+		}
 	}
 	return 0;
 }
@@ -1189,7 +1214,7 @@ int ovs_nla_put_flow(const struct sw_flow_key *swkey,
 		if (output->tun_key.tun_flags & TUNNEL_OPTIONS_PRESENT)
 			opts = GENEVE_OPTS(output, swkey->tun_opts_len);
 
-		if (ipv4_tun_to_nlattr(skb, &output->tun_key, opts,
+		if (ipv4_tun_to_nlattr(skb, &output->tun_key, swkey, opts,
 				       swkey->tun_opts_len))
 			goto nla_put_failure;
 	}
@@ -2055,6 +2080,7 @@ static int set_action_to_attr(const struct nlattr *a, struct sk_buff *skb)
 			return -EMSGSIZE;
 
 		err = ipv4_tun_to_nlattr(skb, &tun_info->tunnel,
+					 NULL,
 					 tun_info->options_len ?
 						tun_info->options : NULL,
 					 tun_info->options_len);

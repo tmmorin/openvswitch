@@ -133,20 +133,6 @@ static int make_writable(struct sk_buff *skb, int write_len)
 	return pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
 }
 
-/* The end of the mac header.
- *
- * For non-MPLS skbs this will correspond to the network header.
- * For MPLS skbs it will be before the network_header as the MPLS
- * label stack lies between the end of the mac header and the network
- * header. That is, for MPLS skbs the end of the mac header
- * is the top of the MPLS label stack.
- */
-static unsigned char *mac_header_end(const struct sk_buff *skb)
-{
-	printk(KERN_WARNING "skb->mac_len: %d", skb->mac_len);
-	return skb_mac_header(skb) + skb->mac_len;
-}
-
 static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 		     const struct ovs_action_push_mpls *mpls)
 {
@@ -161,9 +147,12 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 		return -ENOMEM;
 
 	skb_push(skb, MPLS_HLEN);
-	memmove(skb_mac_header(skb) - MPLS_HLEN, skb_mac_header(skb),
-		skb->mac_len);
-	skb_reset_mac_header(skb);
+	/* probably breaks !! */
+	if (!key->is_layer3) {
+		memmove(skb_mac_header(skb) - MPLS_HLEN, skb_mac_header(skb),
+			skb->mac_len);
+		skb_reset_mac_header(skb);
+	}
 
 	new_mpls_lse = (__be32 *)skb_mpls_header(skb);
 	*new_mpls_lse = mpls->mpls_lse;
@@ -171,7 +160,7 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	if (skb->ip_summed == CHECKSUM_COMPLETE)
 		skb->csum = csum_add(skb->csum, csum_partial(new_mpls_lse,
 							     MPLS_HLEN, 0));
-
+	/* this is still eth specific...*/
 	hdr = eth_hdr(skb);
 	hdr->h_proto = mpls->mpls_ethertype;
 	if (!ovs_skb_get_inner_protocol(skb))
@@ -213,7 +202,8 @@ static int pop_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 		hdr->h_proto = ethertype;
 	}
 	if (eth_p_mpls(skb->protocol))
-		skb->protocol = ethertype;   
+		skb->protocol = ethertype;
+
 	invalidate_flow_key(key);
 	return 0;
 }

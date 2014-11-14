@@ -121,11 +121,7 @@ struct mf_ctx {
  * away.  Some GCC versions gave warnings on ALWAYS_INLINE, so these are
  * defined as macros. */
 
-<<<<<<< HEAD
 #if (FLOW_WC_SEQ != 29)
-=======
-#if (FLOW_WC_SEQ != 28)
->>>>>>> userspace: add layer 3 flow and switching support
 #define MINIFLOW_ASSERT(X) ovs_assert(X)
 BUILD_MESSAGE("FLOW_WC_SEQ changed: miniflow_extract() will have runtime "
                "assertions enabled. Consider updating FLOW_WC_SEQ after "
@@ -433,7 +429,6 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
         if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
             int count;
             const void *mpls = data;
-<<<<<<< HEAD
 
             packet->l2_5_ofs = (char *)data - frame;
             count = parse_mpls(&data, &size);
@@ -469,25 +464,6 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
 	}
     }
 
-=======
-
-            packet->l2_5_ofs = (char *)data - frame;
-            count = parse_mpls(&data, &size);
-            miniflow_push_words(mf, mpls_lse, mpls, count);
-        }
-
-        /* Network layer. */
-        packet->l3_ofs = (char *)data - frame;
-    } else {
-        miniflow_push_uint32(mf, base_layer, LAYER_3);
-
-        /* We assume L3 packets are either IPv4 or IPv6 */
-        dl_type = get_l3_eth_type(packet);
-        miniflow_push_be16(mf, dl_type, dl_type);
-        miniflow_push_be16(mf, vlan_tci, 0);
-    }
-
->>>>>>> userspace: add layer 3 flow and switching support
     nw_frag = 0;
     if (OVS_LIKELY(dl_type == htons(ETH_TYPE_IP))) {
         const struct ip_header *nh = data;
@@ -758,11 +734,7 @@ flow_unwildcard_tp_ports(const struct flow *flow, struct flow_wildcards *wc)
 void
 flow_get_metadata(const struct flow *flow, struct flow_metadata *fmd)
 {
-<<<<<<< HEAD
     BUILD_ASSERT_DECL(FLOW_WC_SEQ == 29);
-=======
-    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 28);
->>>>>>> userspace: add layer 3 flow and switching support
 
     fmd->dp_hash = flow->dp_hash;
     fmd->recirc_id = flow->recirc_id;
@@ -910,11 +882,7 @@ void flow_wildcards_init_for_packet(struct flow_wildcards *wc,
     memset(&wc->masks, 0x0, sizeof wc->masks);
 
     /* Update this function whenever struct flow changes. */
-<<<<<<< HEAD
     BUILD_ASSERT_DECL(FLOW_WC_SEQ == 29);
-=======
-    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 28);
->>>>>>> userspace: add layer 3 flow and switching support
 
     if (flow->tunnel.ip_dst) {
         if (flow->tunnel.flags & FLOW_TNL_F_KEY) {
@@ -939,11 +907,8 @@ void flow_wildcards_init_for_packet(struct flow_wildcards *wc,
     WC_MASK_FIELD(wc, dp_hash);
     WC_MASK_FIELD(wc, in_port);
     WC_MASK_FIELD(wc, base_layer);
-<<<<<<< HEAD
 
     /* actset_output wildcarded. */
-=======
->>>>>>> userspace: add layer 3 flow and switching support
 
     WC_MASK_FIELD(wc, dl_type);
     if (flow->base_layer == LAYER_2) {
@@ -1017,11 +982,7 @@ uint64_t
 flow_wc_map(const struct flow *flow)
 {
     /* Update this function whenever struct flow changes. */
-<<<<<<< HEAD
     BUILD_ASSERT_DECL(FLOW_WC_SEQ == 29);
-=======
-    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 28);
->>>>>>> userspace: add layer 3 flow and switching support
 
     uint64_t map = (flow->tunnel.ip_dst) ? MINIFLOW_MAP(tunnel) : 0;
 
@@ -1073,11 +1034,7 @@ void
 flow_wildcards_clear_non_packet_fields(struct flow_wildcards *wc)
 {
     /* Update this function whenever struct flow changes. */
-<<<<<<< HEAD
     BUILD_ASSERT_DECL(FLOW_WC_SEQ == 29);
-=======
-    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 28);
->>>>>>> userspace: add layer 3 flow and switching support
 
     memset(&wc->masks.metadata, 0, sizeof wc->masks.metadata);
     memset(&wc->masks.regs, 0, sizeof wc->masks.regs);
@@ -1635,11 +1592,7 @@ flow_push_mpls(struct flow *flow, int n, ovs_be16 mpls_eth_type,
         flow->mpls_lse[0] = set_mpls_lse_values(ttl, tc, 1, htonl(label));
 
         /* Clear all L3 and L4 fields. */
-<<<<<<< HEAD
         BUILD_ASSERT(FLOW_WC_SEQ == 29);
-=======
-        BUILD_ASSERT(FLOW_WC_SEQ == 28);
->>>>>>> userspace: add layer 3 flow and switching support
         memset((char *) flow + FLOW_SEGMENT_2_ENDS_AT, 0,
                sizeof(struct flow) - FLOW_SEGMENT_2_ENDS_AT);
     }

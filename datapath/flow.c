@@ -445,7 +445,7 @@ invalid:
  * Ethernet header
  * @key: output flow key
  *
- * The caller must ensure that skb->len >= ETH_HLEN.
+ * The caller must ensure that skb->len >= ETH_HLEN.   // FIXME: is it still true for all layer3 packets...??
  *
  * Returns 0 if successful, otherwise a negative errno value.
  *
@@ -473,10 +473,11 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 
 	/* Link layer. */
 	if (key->phy.is_layer3) {
-		skb_reset_network_header(skb);
+		skb_reset_network_header(skb);  /* maybe not correct for MPLS */
 
 		key->eth.tci = 0;
-		key->eth.type = ethertype_from_ip_version(skb);
+		/* key->eth.type = ethertype_from_ip_version(skb); */
+		/* not needed anymore... */
 	} else {
 		eth = eth_hdr(skb);
 		ether_addr_copy(key->eth.src, eth->h_source);
@@ -609,6 +610,8 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 		}
 	} else if (eth_p_mpls(key->eth.type)) {
 		size_t stack_len = MPLS_HLEN;
+		
+		/* FIXME: unsure... */
 
 		/* In the presence of an MPLS label stack the end of the L2
 		 * header and the beginning of the L3 header differ.
@@ -700,8 +703,7 @@ int ovs_flow_key_update(struct sk_buff *skb, struct sw_flow_key *key)
 }
 
 int ovs_flow_key_extract(const struct ovs_tunnel_info *tun_info,
-			 struct sk_buff *skb,
-			 struct sw_flow_key *key,
+			 struct sk_buff *skb, struct sw_flow_key *key,
 			 bool is_layer3)
 {
 	/* Extract metadata from packet. */

@@ -76,12 +76,12 @@ static struct sk_buff *__build_header(struct sk_buff *skb,
 
 	tpi.flags = filter_tnl_flags(tun_key->tun_flags) | gre64_flag;
 
-	/*FIXME: use the vport type, or see if skb->protocol can be used */
-	//if( !OVS_CB(skb)->is_layer3 ) {
-	//	tpi.proto = htons(ETH_P_TEB);
-        //} else {
+	if (skb->mac_header == skb->network_header) {
 		tpi.proto = skb->protocol;
-	//}
+        } else {
+		tpi.proto = htons(ETH_P_TEB);
+	}
+
 	tpi.key = be64_get_low32(tun_key->tun_id);
 	tpi.seq = seq;
 	gre_build_header(skb, &tpi, tunnel_hlen);

@@ -2596,6 +2596,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     const struct xport *xport = get_ofp_port(ctx->xbridge, ofp_port);
     struct flow_wildcards *wc = &ctx->xout->wc;
     struct flow *flow = &ctx->xin->flow;
+    struct flow_tnl flow_tnl;
     const struct xport *in_xport = get_ofp_port(ctx->xbridge, flow->in_port.ofp_port);
     ovs_be16 flow_vlan_tci;
     uint32_t flow_pkt_mark;
@@ -2606,7 +2607,8 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
 
     /* If 'struct flow' gets additional metadata, we'll need to zero it out
      * before traversing a patch port. */
-    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 28);
+    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 29);
+    memset(&flow_tnl, 0, sizeof flow_tnl);
 
     if (!xport) {
         xlate_report(ctx, "Nonexistent output port");
@@ -2645,14 +2647,15 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
                                                  xport->xbundle);
     }
 
-    if (in_xport && !in_xport->is_layer3 && xport->is_layer3) {
-        odp_put_pop_eth_action(ctx->xout->odp_actions);
-    }
-
-    if (flow->base_layer == LAYER_3 && !xport->is_layer3) {
-        flow->base_layer = LAYER_2;
-        odp_put_push_eth_action(ctx->xout->odp_actions, flow->dl_src,
-                                flow->dl_dst, flow->dl_type);
+    /* Add the appropriate {pop,push}_eth datapath action to packets swicthing
+     * between layer 2 and layer 3 ports */
+    if (in_xport) {
+        if (!in_xport->is_layer3 && xport->is_layer3) {
+            odp_put_pop_eth_action(ctx->xout->odp_actions);
+        } else if (in_xport && in_xport->is_layer3 && !xport->is_layer3) {
+            odp_put_push_eth_action(ctx->xout->odp_actions, flow->dl_src,
+                                    flow->dl_dst, flow->dl_type);
+        }
     }
 
     if (xport->peer) {

@@ -49,7 +49,6 @@ struct ovs_key_ipv4_tunnel {
 	u8   ipv4_ttl;
 	__be16 tp_src;
 	__be16 tp_dst;
-	__be16 ethertype;
 } __packed __aligned(4); /* Minimize padding. */
 
 struct ovs_tunnel_info {
