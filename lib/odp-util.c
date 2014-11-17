@@ -3078,6 +3078,13 @@ odp_key_from_pkt_metadata(struct ofpbuf *buf, const struct pkt_metadata *md)
     if (md->in_port.odp_port != ODPP_NONE) {
         nl_msg_put_odp_port(buf, OVS_KEY_ATTR_IN_PORT, md->in_port.odp_port);
     }
+
+    if (md->base_layer == LAYER_2) {
+        nl_msg_put_unspec_uninit(buf, OVS_KEY_ATTR_ETHERNET,
+                                 sizeof(struct ovs_key_ethernet));
+    } else {
+        nl_msg_put_be16(buf, OVS_KEY_ATTR_ETHERTYPE, md->protocol);
+    }
 }
 
 /* Generate packet metadata from the given ODP flow key. */
@@ -3089,9 +3096,12 @@ odp_key_to_pkt_metadata(const struct nlattr *key, size_t key_len,
     size_t left;
     uint32_t wanted_attrs = 1u << OVS_KEY_ATTR_PRIORITY |
         1u << OVS_KEY_ATTR_SKB_MARK | 1u << OVS_KEY_ATTR_TUNNEL |
-        1u << OVS_KEY_ATTR_IN_PORT;
+        1u << OVS_KEY_ATTR_IN_PORT | 1u << OVS_KEY_ATTR_ETHERNET |
+        1u << OVS_KEY_ATTR_ETHERTYPE;
 
     *md = PKT_METADATA_INITIALIZER(ODPP_NONE);
+
+    md->base_layer = LAYER_3;
 
     NL_ATTR_FOR_EACH (nla, left, key, key_len) {
         uint16_t type = nl_attr_type(nla);
@@ -3133,6 +3143,14 @@ odp_key_to_pkt_metadata(const struct nlattr *key, size_t key_len,
         case OVS_KEY_ATTR_IN_PORT:
             md->in_port.odp_port = nl_attr_get_odp_port(nla);
             wanted_attrs &= ~(1u << OVS_KEY_ATTR_IN_PORT);
+            break;
+        case OVS_KEY_ATTR_ETHERNET:
+            md->base_layer = LAYER_2;
+            wanted_attrs &= ~(1u << OVS_KEY_ATTR_ETHERNET);
+            break;
+        case OVS_KEY_ATTR_ETHERTYPE:
+            md->protocol = nl_attr_get_be16(nla);
+            wanted_attrs &= ~(1u << OVS_KEY_ATTR_ETHERTYPE);
             break;
         default:
             break;
