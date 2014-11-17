@@ -1131,6 +1131,8 @@ dpif_execute_helper_cb(void *aux_, struct dp_packet **packets, int cnt,
     }
 
     case OVS_ACTION_ATTR_HASH:
+    case OVS_ACTION_ATTR_PUSH_ETH:
+    case OVS_ACTION_ATTR_POP_ETH:
     case OVS_ACTION_ATTR_PUSH_VLAN:
     case OVS_ACTION_ATTR_POP_VLAN:
     case OVS_ACTION_ATTR_PUSH_MPLS:
