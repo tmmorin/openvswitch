@@ -219,7 +219,7 @@ static inline struct vport *vport_from_priv(void *priv)
 }
 
 void ovs_vport_receive(struct vport *, struct sk_buff *,
-		       const struct ovs_tunnel_info *);
+		       const struct ovs_tunnel_info *, bool is_layer3);
 
 /* List of statically compiled vport implementations.  Don't forget to also
  * add yours to the list at the top of vport.c.
