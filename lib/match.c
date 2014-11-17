@@ -877,7 +877,7 @@ match_format(const struct match *match, struct ds *s, int priority)
 
     int i;
 
-    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 30);
+    BUILD_ASSERT_DECL(FLOW_WC_SEQ == 31);
 
     if (priority != OFP_DEFAULT_PRIORITY) {
         ds_put_format(s, "priority=%d,", priority);
@@ -979,6 +979,12 @@ match_format(const struct match *match, struct ds *s, int priority)
         ofputil_format_port(f->in_port.ofp_port, s);
         ds_put_char(s, ',');
     }
+
+    if (f->base_layer && wc->masks.base_layer) {
+        format_uint32_masked(s, "base_layer", f->base_layer,
+                             wc->masks.base_layer);
+    }
+
     if (wc->masks.vlan_tci) {
         ovs_be16 vid_mask = wc->masks.vlan_tci & htons(VLAN_VID_MASK);
         ovs_be16 pcp_mask = wc->masks.vlan_tci & htons(VLAN_PCP_MASK);
