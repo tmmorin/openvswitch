@@ -257,6 +257,56 @@ static int set_eth_addr(struct sk_buff *skb, struct sw_flow_key *key,
 	return 0;
 }
 
+static int pop_eth(struct sk_buff *skb, struct sw_flow_key *key)
+{
+	skb_pull_rcsum(skb, ETH_HLEN);
+	skb_reset_mac_header(skb);
+	skb->mac_len -= ETH_HLEN;
+
+	invalidate_flow_key(key);
+	return 0;
+}
+
+static int push_eth(struct sk_buff *skb, struct sw_flow_key *key,
+		    const struct ovs_action_push_eth *ethh)
+{
+	/* De-accelerate any hardware accelerated VLAN tag added to a previous
+	 * Ethernet header */
+	if (unlikely(vlan_tx_tag_present(skb))) {
+		u16 current_tag;
+
+		/* push down current VLAN tag */
+		current_tag = vlan_tx_tag_get(skb);
+
+		if (!__vlan_put_tag(skb, skb->vlan_proto, current_tag))
+			return -ENOMEM;
+		/* Update mac_len for subsequent MPLS actions */
+		skb->mac_len += VLAN_HLEN;
+
+		if (skb->ip_summed == CHECKSUM_COMPLETE)
+			skb->csum = csum_add(skb->csum, csum_partial(skb->data
+					+ (2 * ETH_ALEN), VLAN_HLEN, 0));
+	}
+
+	/* Add the new Ethernet header */
+	if (skb_cow_head(skb, ETH_HLEN) < 0)
+		return -ENOMEM;
+
+	skb_push(skb, ETH_HLEN);
+	skb_reset_mac_header(skb);
+	skb_reset_mac_len(skb);
+
+	ether_addr_copy(eth_hdr(skb)->h_source, ethh->addresses.eth_src);
+	ether_addr_copy(eth_hdr(skb)->h_dest, ethh->addresses.eth_dst);
+	eth_hdr(skb)->h_proto = ethh->eth_type;
+
+	ovs_skb_postpush_rcsum(skb, skb->data, ETH_HLEN);
+
+	skb->protocol = ethh->eth_type;
+	invalidate_flow_key(key);
+	return 0;
+}
+
 static void set_ip_addr(struct sk_buff *skb, struct iphdr *nh,
 			__be32 *addr, __be32 new_addr)
 {
@@ -808,6 +858,14 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 
 		case OVS_ACTION_ATTR_POP_VLAN:
 			err = pop_vlan(skb, key);
+			break;
+
+		case OVS_ACTION_ATTR_PUSH_ETH:
+			err = push_eth(skb, key, nla_data(a));
+			break;
+
+		case OVS_ACTION_ATTR_POP_ETH:
+			err = pop_eth(skb, key);
 			break;
 
 		case OVS_ACTION_ATTR_RECIRC:
