@@ -385,18 +385,35 @@ invalid:
     return false;
 }
 
-/* Initializes 'flow' members from 'packet' and 'md'
+/* Determines IP version if a layer 3 packet */
+static ovs_be16
+get_l3_eth_type(struct ofpbuf *packet)
+{
+    struct ip_header *ip = ofpbuf_l3(packet);
+    int ip_ver = IP_VER(ip->ip_ihl_ver);
+    switch (ip_ver) {
+    case 4:
+        return htons(ETH_TYPE_IP);
+    case 6:
+        return htons(ETH_TYPE_IPV6);
+    default:
+        return 0;
+    }
+}
+
+/* Initializes 'flow' members from 'packet' and 'md'.  Expects packet->frame
+ * pointer to be equal to ofpbuf_data(packet), and packet->l3_ofs to be set to
+ * 0 for layer 3 packets.
  *
- * Initializes 'packet' header l2 pointer to the start of the Ethernet
- * header, and the layer offsets as follows:
+ * Initializes the layer offsets as follows:
  *
  *    - packet->l2_5_ofs to the start of the MPLS shim header, or UINT16_MAX
- *      when there is no MPLS shim header.
+ *      when there is no MPLS shim header, or Ethernet header
  *
- *    - packet->l3_ofs to just past the Ethernet header, or just past the
- *      vlan_header if one is present, to the first byte of the payload of the
- *      Ethernet frame.  UINT16_MAX if the frame is too short to contain an
- *      Ethernet header.
+ *    - packet->l3_ofs (if not 0) to just past the Ethernet header, or just
+ *      past the vlan_header if one is present, to the first byte of the
+ *      payload of the Ethernet frame.  UINT16_MAX if the frame is too short to
+ *      contain an Ethernet header.
  *
  *    - packet->l4_ofs to just past the IPv4 header, if one is present and
  *      has at least the content used for the fields of interest for the flow,
@@ -413,6 +430,8 @@ flow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
 
     COVERAGE_INC(flow_extract);
 
+    ovs_assert(packet->frame == ofpbuf_data(packet));
+
     miniflow_initialize(&m.mf, m.buf);
     miniflow_extract(packet, md, &m.mf);
     miniflow_expand(&m.mf, flow);
@@ -428,7 +447,8 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
     size_t size = ofpbuf_size(packet);
     uint64_t *values = miniflow_values(dst);
     struct mf_ctx mf = { 0, values, values + FLOW_U64S };
-    char *l2;
+    uint32_t base_layer = (packet->l3_ofs) ? LAYER_2 : LAYER_3;
+    char *frame = NULL;
     ovs_be16 dl_type;
     uint8_t nw_frag, nw_tos, nw_ttl, nw_proto;
 
@@ -444,45 +464,59 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
         }
         miniflow_push_uint32(mf, dp_hash, md->dp_hash);
         miniflow_push_uint32(mf, in_port, odp_to_u32(md->in_port.odp_port));
-        if (md->recirc_id) {
+        if (md->recirc_id || base_layer) {
             miniflow_push_uint32(mf, recirc_id, md->recirc_id);
-            miniflow_pad_to_64(mf, conj_id);
+            miniflow_push_uint32(mf, base_layer, base_layer);
         }
     }
 
-    /* Initialize packet's layer pointer and offsets. */
-    l2 = data;
-    ofpbuf_set_frame(packet, data);
+    if (base_layer == LAYER_2) {
+        frame = data;
 
-    /* Must have full Ethernet header to proceed. */
-    if (OVS_UNLIKELY(size < sizeof(struct eth_header))) {
-        goto out;
-    } else {
-        ovs_be16 vlan_tci;
+        /* Must have full Ethernet header to proceed. */
+        if (OVS_UNLIKELY(size < sizeof(struct eth_header))) {
+            goto out;
+        } else {
+            ovs_be16 vlan_tci;
 
-        /* Link layer. */
-        BUILD_ASSERT(offsetof(struct flow, dl_dst) + 6
-                     == offsetof(struct flow, dl_src));
-        miniflow_push_macs(mf, dl_dst, data);
-        /* dl_type, vlan_tci. */
-        vlan_tci = parse_vlan(&data, &size);
-        dl_type = parse_ethertype(&data, &size);
+            /* Link layer. */
+            BUILD_ASSERT(offsetof(struct flow, dl_dst) + 6
+                         == offsetof(struct flow, dl_src));
+            miniflow_push_macs(mf, dl_dst, data);
+            /* dl_type, vlan_tci. */
+            vlan_tci = parse_vlan(&data, &size);
+            dl_type = parse_ethertype(&data, &size);
+            miniflow_push_be16(mf, dl_type, dl_type);
+            miniflow_push_be16(mf, vlan_tci, vlan_tci);
+        }
+
+        /* Parse mpls. */
+        if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
+            int count;
+            const void *mpls = data;
+
+            packet->l2_5_ofs = (char *)data - frame;
+            count = parse_mpls(&data, &size);
+            miniflow_push_words_32(mf, mpls_lse, mpls, count);
+        }
+
+        /* Network layer. */
+        packet->l3_ofs = (char *)data - frame;
+    } else if (base_layer == LAYER_3) {
+	uint8_t macs[2 * ETH_ADDR_LEN] = {
+	    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	    0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+	};
+
+	miniflow_push_macs(mf, dl_dst, macs);
+
+        /* We assume L3 packets are either IPv4 or IPv6 */
+        dl_type = get_l3_eth_type(packet);
         miniflow_push_be16(mf, dl_type, dl_type);
-        miniflow_push_be16(mf, vlan_tci, vlan_tci);
+        miniflow_push_be16(mf, vlan_tci, 0);
+    } else {
+	OVS_NOT_REACHED();
     }
-
-    /* Parse mpls. */
-    if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
-        int count;
-        const void *mpls = data;
-
-        packet->l2_5_ofs = (char *)data - l2;
-        count = parse_mpls(&data, &size);
-        miniflow_push_words_32(mf, mpls_lse, mpls, count);
-    }
-
-    /* Network layer. */
-    packet->l3_ofs = (char *)data - l2;
 
     nw_frag = 0;
     if (OVS_LIKELY(dl_type == htons(ETH_TYPE_IP))) {
@@ -660,7 +694,7 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
         goto out;
     }
 
-    packet->l4_ofs = (char *)data - l2;
+    packet->l4_ofs = (char *)data - frame;
     miniflow_push_be32(mf, nw_frag,
                        BYTES_TO_BE32(nw_frag, nw_tos, nw_ttl, nw_proto));
 
@@ -940,13 +974,16 @@ void flow_wildcards_init_for_packet(struct flow_wildcards *wc,
     WC_MASK_FIELD(wc, recirc_id);
     WC_MASK_FIELD(wc, dp_hash);
     WC_MASK_FIELD(wc, in_port);
+    WC_MASK_FIELD(wc, base_layer);
 
     /* actset_output wildcarded. */
 
-    WC_MASK_FIELD(wc, dl_dst);
-    WC_MASK_FIELD(wc, dl_src);
     WC_MASK_FIELD(wc, dl_type);
-    WC_MASK_FIELD(wc, vlan_tci);
+    if (flow->base_layer == LAYER_2) {
+        WC_MASK_FIELD(wc, dl_dst);
+        WC_MASK_FIELD(wc, dl_src);
+        WC_MASK_FIELD(wc, vlan_tci);
+    }
 
     if (flow->dl_type == htons(ETH_TYPE_IP)) {
         WC_MASK_FIELD(wc, nw_src);
