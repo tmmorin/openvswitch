@@ -692,6 +692,18 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 		else
 			SW_FLOW_KEY_PUT(match, phy.is_layer3, true, is_mask);
 	}
+	/* Layer 3 packets from user space have the EtherType as metadata */
+	if (*attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE)) {
+		__be16 eth_type;
+
+		if (is_mask)
+			/* Always exact match EtherType. */
+			eth_type = htons(0xffff);
+		else
+			eth_type = nla_get_be16(a[OVS_KEY_ATTR_ETHERTYPE]);
+
+		SW_FLOW_KEY_PUT(match, eth.type, eth_type, is_mask);
+	}
 	return 0;
 }
 
