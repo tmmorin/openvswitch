@@ -438,13 +438,15 @@ u32 ovs_vport_find_upcall_portid(const struct vport *vport, struct sk_buff *skb)
  * @vport: vport that received the packet
  * @skb: skb that was received
  * @tun_info: tunnel (if any) that carried packet
+ * @is_layer3: packet is layer 3
  *
  * Must be called with rcu_read_lock.  The packet cannot be shared and
  * skb->data should point to the Ethernet header.  The caller must have already
  * called compute_ip_summed() to initialize the checksumming fields.
  */
 void ovs_vport_receive(struct vport *vport, struct sk_buff *skb,
-		       const struct ovs_tunnel_info *tun_info)
+		       const struct ovs_tunnel_info *tun_info,
+		       bool is_layer3)
 {
 	struct pcpu_sw_netstats *stats;
 	struct sw_flow_key key;
@@ -459,7 +461,7 @@ void ovs_vport_receive(struct vport *vport, struct sk_buff *skb,
 	ovs_skb_init_inner_protocol(skb);
 	OVS_CB(skb)->input_vport = vport;
 	OVS_CB(skb)->egress_tun_info = NULL;
-	error = ovs_flow_key_extract(tun_info, skb, &key);
+	error = ovs_flow_key_extract(tun_info, skb, &key, is_layer3);
 	if (unlikely(error)) {
 		kfree_skb(skb);
 		return;
