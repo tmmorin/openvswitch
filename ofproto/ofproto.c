@@ -3176,6 +3176,7 @@ handle_packet_out(struct ofconn *ofconn, const struct ofp_header *oh)
     } else {
         /* Ensure that the L3 header is 32-bit aligned. */
         payload = ofpbuf_clone_data_with_headroom(po.packet, po.packet_len, 2);
+        ofpbuf_set_frame(payload, ofpbuf_data(payload));
     }
 
     /* Verify actions against packet, then send packet if successful. */
