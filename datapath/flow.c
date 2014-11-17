@@ -462,7 +462,6 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 	/* Link layer. */
 	if (key->phy.is_layer3) {
 		key->eth.tci = 0;
-		key->eth.type = skb->protocol;
 	} else {
 		eth = eth_hdr(skb);
 		ether_addr_copy(key->eth.src, eth->h_source);
@@ -681,6 +680,8 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 
 int ovs_flow_key_update(struct sk_buff *skb, struct sw_flow_key *key)
 {
+	key->eth.type = skb->protocol;
+
 	return key_extract(skb, key);
 }
 
@@ -713,6 +714,9 @@ int ovs_flow_key_extract(const struct ovs_tunnel_info *tun_info,
 	key->phy.is_layer3 = is_layer3;
 	key->ovs_flow_hash = 0;
 	key->recirc_id = 0;
+
+	if (is_layer3)
+		key->eth.type = skb->protocol;
 
 	return key_extract(skb, key);
 }
