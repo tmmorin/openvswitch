@@ -459,28 +459,31 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 
 	skb_reset_mac_header(skb);
 
-	/* Link layer.  We are guaranteed to have at least the 14 byte Ethernet
-	 * header in the linear data area.
-	 */
-	eth = eth_hdr(skb);
-	ether_addr_copy(key->eth.src, eth->h_source);
-	ether_addr_copy(key->eth.dst, eth->h_dest);
+	/* Link layer. */
+	if (key->phy.is_layer3) {
+		key->eth.tci = 0;
+		key->eth.type = skb->protocol;
+	} else {
+		eth = eth_hdr(skb);
+		ether_addr_copy(key->eth.src, eth->h_source);
+		ether_addr_copy(key->eth.dst, eth->h_dest);
 
-	__skb_pull(skb, 2 * ETH_ALEN);
-	/* We are going to push all headers that we pull, so no need to
-	 * update skb->csum here.
-	 */
+		__skb_pull(skb, 2 * ETH_ALEN);
+		/* We are going to push all headers that we pull, so no need to
+		 * update skb->csum here.
+		 */
 
-	key->eth.tci = 0;
-	if (vlan_tx_tag_present(skb))
-		key->eth.tci = htons(vlan_get_tci(skb));
-	else if (eth->h_proto == htons(ETH_P_8021Q))
-		if (unlikely(parse_vlan(skb, key)))
+		key->eth.tci = 0;
+		if (vlan_tx_tag_present(skb))
+			key->eth.tci = htons(vlan_get_tci(skb));
+		else if (eth->h_proto == htons(ETH_P_8021Q))
+			if (unlikely(parse_vlan(skb, key)))
+				return -ENOMEM;
+
+		key->eth.type = parse_ethertype(skb);
+		if (unlikely(key->eth.type == htons(0)))
 			return -ENOMEM;
-
-	key->eth.type = parse_ethertype(skb);
-	if (unlikely(key->eth.type == htons(0)))
-		return -ENOMEM;
+	}
 
 	skb_reset_network_header(skb);
 	skb_reset_mac_len(skb);
@@ -682,7 +685,8 @@ int ovs_flow_key_update(struct sk_buff *skb, struct sw_flow_key *key)
 }
 
 int ovs_flow_key_extract(const struct ovs_tunnel_info *tun_info,
-			 struct sk_buff *skb, struct sw_flow_key *key)
+			 struct sk_buff *skb, struct sw_flow_key *key,
+			 bool is_layer3)
 {
 	/* Extract metadata from packet. */
 	if (tun_info) {
@@ -706,6 +710,7 @@ int ovs_flow_key_extract(const struct ovs_tunnel_info *tun_info,
 	key->phy.priority = skb->priority;
 	key->phy.in_port = OVS_CB(skb)->input_vport->port_no;
 	key->phy.skb_mark = skb->mark;
+	key->phy.is_layer3 = is_layer3;
 	key->ovs_flow_hash = 0;
 	key->recirc_id = 0;
 
