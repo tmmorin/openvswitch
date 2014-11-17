@@ -274,11 +274,12 @@ static inline bool ofpbuf_equal(const struct ofpbuf *a, const struct ofpbuf *b)
            memcmp(ofpbuf_data(a), ofpbuf_data(b), ofpbuf_size(a)) == 0;
 }
 
-/* Get the start if the Ethernet frame.  'l3_ofs' marks the end of the l2
- * headers, so return NULL if it is not set. */
+/* Get the start of the Ethernet frame.  'l3_ofs' marks the end of the l2
+ * headers, so return NULL if it is not set.  A 'l3_ofs' of 0 marks a layer 3
+ * packet, so return NULL in that case too. */
 static inline void * ofpbuf_l2(const struct ofpbuf *b)
 {
-    return (b->l3_ofs != UINT16_MAX) ? b->frame : NULL;
+    return (b->l3_ofs != UINT16_MAX && b->l3_ofs != 0) ? b->frame : NULL;
 }
 
 /* Sets the packet frame start pointer and resets all layer offsets.
@@ -372,6 +373,11 @@ static inline const void *ofpbuf_get_icmp_payload(const struct ofpbuf *b)
 {
     return OVS_LIKELY(ofpbuf_l4_size(b) >= ICMP_HEADER_LEN)
         ? (const char *)ofpbuf_l4(b) + ICMP_HEADER_LEN : NULL;
+}
+
+static inline bool ofpbuf_is_layer3_packet(const struct ofpbuf *b)
+{
+    return (b->frame == ofpbuf_data(b)) && (b->l3_ofs == 0);
 }
 
 #ifdef DPDK_NETDEV
