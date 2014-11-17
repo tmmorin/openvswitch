@@ -462,7 +462,6 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 	/* Link layer. */
 	if (key->phy.is_layer3) {
 		key->eth.tci = 0;
-		key->eth.type = skb->protocol;
 	} else {
 		eth = eth_hdr(skb);
 		ether_addr_copy(key->eth.src, eth->h_source);
