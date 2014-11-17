@@ -113,7 +113,7 @@ static void update_range(struct sw_flow_match *match,
 static bool match_validate(const struct sw_flow_match *match,
 			   u64 key_attrs, u64 mask_attrs, bool log)
 {
-	u64 key_expected = 1ULL << OVS_KEY_ATTR_ETHERNET;
+	u64 key_expected = 0;
 	u64 mask_allowed = key_attrs;  /* At most allow all key attributes */
 
 	/* The following mask attributes allowed only if they
@@ -135,6 +135,10 @@ static bool match_validate(const struct sw_flow_match *match,
 	mask_allowed |= ((1ULL << OVS_KEY_ATTR_TUNNEL)
 		       | (1ULL << OVS_KEY_ATTR_IN_PORT)
 		       | (1ULL << OVS_KEY_ATTR_ETHERTYPE));
+
+	/* If Ethertype is present, expect MAC addresses */
+	if (key_attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE))
+		key_expected |= 1ULL << OVS_KEY_ATTR_ETHERNET;
 
 	/* Check key attributes. */
 	if (match->key->eth.type == htons(ETH_P_ARP)
@@ -679,6 +683,15 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 			return -EINVAL;
 		*attrs &= ~(1ULL << OVS_KEY_ATTR_TUNNEL);
 	}
+	if (is_mask)
+		/* Always exact match is_layer3 */
+		SW_FLOW_KEY_PUT(match, phy.is_layer3, true, is_mask);
+	else {
+		if (*attrs & (1ULL << OVS_KEY_ATTR_ETHERNET))
+			SW_FLOW_KEY_PUT(match, phy.is_layer3, false, is_mask);
+		else
+			SW_FLOW_KEY_PUT(match, phy.is_layer3, true, is_mask);
+	}
 	return 0;
 }
 
@@ -742,6 +755,17 @@ static int ovs_key_from_nlattrs(struct sw_flow_match *match, u64 attrs,
 	if (attrs & (1ULL << OVS_KEY_ATTR_IPV4)) {
 		const struct ovs_key_ipv4 *ipv4_key;
 
+		/* Add eth.type value for layer 3 flows */
+		if (!(attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE))) {
+			__be16 eth_type;
+
+			if (is_mask)
+				eth_type = htons(0xffff);
+			else
+				eth_type = htons(ETH_P_IP);
+			SW_FLOW_KEY_PUT(match, eth.type, eth_type, is_mask);
+		}
+
 		ipv4_key = nla_data(a[OVS_KEY_ATTR_IPV4]);
 		if (!is_mask && ipv4_key->ipv4_frag > OVS_FRAG_TYPE_MAX) {
 			OVS_NLERR(log, "IPv4 frag type %d is out of range max %d",
@@ -765,6 +789,17 @@ static int ovs_key_from_nlattrs(struct sw_flow_match *match, u64 attrs,
 
 	if (attrs & (1ULL << OVS_KEY_ATTR_IPV6)) {
 		const struct ovs_key_ipv6 *ipv6_key;
+
+		/* Add eth.type value for layer 3 flows */
+		if (!(attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE))) {
+			__be16 eth_type;
+
+			if (is_mask)
+				eth_type = htons(0xffff);
+			else
+				eth_type = htons(ETH_P_IPV6);
+			SW_FLOW_KEY_PUT(match, eth.type, eth_type, is_mask);
+		}
 
 		ipv6_key = nla_data(a[OVS_KEY_ATTR_IPV6]);
 		if (!is_mask && ipv6_key->ipv6_frag > OVS_FRAG_TYPE_MAX) {
@@ -1135,7 +1170,7 @@ int ovs_nla_put_flow(const struct sw_flow_key *swkey,
 		     const struct sw_flow_key *output, struct sk_buff *skb)
 {
 	struct ovs_key_ethernet *eth_key;
-	struct nlattr *nla, *encap;
+	struct nlattr *nla, *encap = NULL;
 	bool is_mask = (swkey != output);
 
 	if (nla_put_u32(skb, OVS_KEY_ATTR_RECIRC_ID, output->recirc_id))
@@ -1174,6 +1209,9 @@ int ovs_nla_put_flow(const struct sw_flow_key *swkey,
 	if (nla_put_u32(skb, OVS_KEY_ATTR_SKB_MARK, output->phy.skb_mark))
 		goto nla_put_failure;
 
+	if (swkey->phy.is_layer3)
+		goto noethernet;
+
 	nla = nla_reserve(skb, OVS_KEY_ATTR_ETHERNET, sizeof(*eth_key));
 	if (!nla)
 		goto nla_put_failure;
@@ -1191,8 +1229,7 @@ int ovs_nla_put_flow(const struct sw_flow_key *swkey,
 		encap = nla_nest_start(skb, OVS_KEY_ATTR_ENCAP);
 		if (!swkey->eth.tci)
 			goto unencap;
-	} else
-		encap = NULL;
+	}
 
 	if (swkey->eth.type == htons(ETH_P_802_2)) {
 		/*
@@ -1211,6 +1248,7 @@ int ovs_nla_put_flow(const struct sw_flow_key *swkey,
 	if (nla_put_be16(skb, OVS_KEY_ATTR_ETHERTYPE, output->eth.type))
 		goto nla_put_failure;
 
+noethernet:
 	if (swkey->eth.type == htons(ETH_P_IP)) {
 		struct ovs_key_ipv4 *ipv4_key;
 
@@ -1623,7 +1661,8 @@ static int validate_and_copy_set_tun(const struct nlattr *attr,
 static int validate_set(const struct nlattr *a,
 			const struct sw_flow_key *flow_key,
 			struct sw_flow_actions **sfa,
-			bool *set_tun, __be16 eth_type, bool log)
+			bool *set_tun, __be16 eth_type, bool log,
+			bool is_layer3)
 {
 	const struct nlattr *ovs_key = nla_data(a);
 	int key_type = nla_type(ovs_key);
@@ -1644,7 +1683,11 @@ static int validate_set(const struct nlattr *a,
 
 	case OVS_KEY_ATTR_PRIORITY:
 	case OVS_KEY_ATTR_SKB_MARK:
+		break;
+
 	case OVS_KEY_ATTR_ETHERNET:
+		if (is_layer3)
+			return -EINVAL;
 		break;
 
 	case OVS_KEY_ATTR_TUNNEL:
@@ -1705,6 +1748,8 @@ static int validate_set(const struct nlattr *a,
 		return validate_tp_port(flow_key, eth_type);
 
 	case OVS_KEY_ATTR_MPLS:
+		if (is_layer3)
+			return -EINVAL;
 		if (!eth_p_mpls(eth_type))
 			return -EINVAL;
 		break;
@@ -1765,6 +1810,7 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 {
 	const struct nlattr *a;
 	int rem, err;
+	bool is_layer3 = key->phy.is_layer3;
 
 	if (depth >= SAMPLE_ACTION_DEPTH)
 		return -EOVERFLOW;
@@ -1775,6 +1821,8 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			[OVS_ACTION_ATTR_OUTPUT] = sizeof(u32),
 			[OVS_ACTION_ATTR_RECIRC] = sizeof(u32),
 			[OVS_ACTION_ATTR_USERSPACE] = (u32)-1,
+			[OVS_ACTION_ATTR_PUSH_ETH] = sizeof(struct ovs_action_push_eth),
+			[OVS_ACTION_ATTR_POP_ETH] = 0,
 			[OVS_ACTION_ATTR_PUSH_MPLS] = sizeof(struct ovs_action_push_mpls),
 			[OVS_ACTION_ATTR_POP_MPLS] = sizeof(__be16),
 			[OVS_ACTION_ATTR_PUSH_VLAN] = sizeof(struct ovs_action_push_vlan),
@@ -1822,11 +1870,31 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			break;
 		}
 
+		case OVS_ACTION_ATTR_POP_ETH:
+			if (is_layer3)
+				return -EINVAL;
+			if (vlan_tci & htons(VLAN_TAG_PRESENT))
+				return -EINVAL;
+			is_layer3 = true;
+			break;
+
+		case OVS_ACTION_ATTR_PUSH_ETH:
+			/* For now disallow pushing an Ethernet header if one
+			 * is already present */
+			if (!is_layer3)
+				return -EINVAL;
+			is_layer3 = false;
+			break;
+
 		case OVS_ACTION_ATTR_POP_VLAN:
+			if (is_layer3)
+				return -EINVAL;
 			vlan_tci = htons(0);
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_VLAN:
+			if (is_layer3)
+				return -EINVAL;
 			vlan = nla_data(a);
 			if (vlan->vlan_tpid != htons(ETH_P_8021Q))
 				return -EINVAL;
@@ -1876,8 +1944,8 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			break;
 
 		case OVS_ACTION_ATTR_SET:
-			err = validate_set(a, key, sfa,
-					   &skip_copy, eth_type, log);
+			err = validate_set(a, key, sfa, &skip_copy,
+					   eth_type, log, is_layer3);
 			if (err)
 				return err;
 			break;
