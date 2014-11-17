@@ -2645,7 +2645,8 @@ dp_netdev_upcall(struct dp_netdev *dp, struct dpif_packet *packet_,
                                true);
 
         packet_str = ofp_packet_to_string(ofpbuf_data(packet),
-                                          ofpbuf_size(packet));
+                                          ofpbuf_size(packet),
+                                          ofpbuf_is_layer3_packet(packet));
 
         odp_flow_key_format(ofpbuf_data(&key), ofpbuf_size(&key), &ds);
 

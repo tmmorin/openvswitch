@@ -185,6 +185,7 @@ ovs_pcap_read(FILE *file, struct ofpbuf **bufp, long long int *when)
         ofpbuf_delete(buf);
         return error;
     }
+    ofpbuf_set_frame(buf, ofpbuf_data(buf));
     *bufp = buf;
     return 0;
 }
