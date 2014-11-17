@@ -285,7 +285,7 @@ size_t ovs_key_attr_size(void)
 	/* Whenever adding new OVS_KEY_ FIELDS, we should consider
 	 * updating this function.
 	 */
-	BUILD_BUG_ON(OVS_KEY_ATTR_TUNNEL_INFO != 22);
+	BUILD_BUG_ON(OVS_KEY_ATTR_TUNNEL_INFO != 23);
 
 	return    nla_total_size(4)   /* OVS_KEY_ATTR_PRIORITY */
 		+ nla_total_size(0)   /* OVS_KEY_ATTR_TUNNEL */
@@ -343,7 +343,9 @@ static const struct ovs_len_tbl ovs_key_lens[OVS_KEY_ATTR_MAX + 1] = {
 	[OVS_KEY_ATTR_TUNNEL]	 = { .len = OVS_ATTR_NESTED,
 				     .next = ovs_tunnel_key_lens, },
 	[OVS_KEY_ATTR_MPLS]	 = { .len = sizeof(struct ovs_key_mpls) },
+	[OVS_KEY_ATTR_PACKET_ETHERTYPE] = { .len = sizeof(__be16) },
 };
+
 static bool is_all_zero(const u8 *fp, size_t size)
 {
 	int i;
@@ -720,6 +722,8 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 				 const struct nlattr **a, bool is_mask,
 				 bool log)
 {
+	bool is_layer3;
+
 	if (*attrs & (1ULL << OVS_KEY_ATTR_DP_HASH)) {
 		u32 hash_val = nla_get_u32(a[OVS_KEY_ATTR_DP_HASH]);
 
@@ -769,15 +773,33 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 			return -EINVAL;
 		*attrs &= ~(1ULL << OVS_KEY_ATTR_TUNNEL);
 	}
+
+	/* For full flow keys the layer is determined based on the presence of
+	 * OVS_KEY_ATTR_ETHERNET */
 	if (is_mask)
 		/* Always exact match is_layer3 */
-		SW_FLOW_KEY_PUT(match, phy.is_layer3, true, is_mask);
-	else {
-		if (*attrs & (1ULL << OVS_KEY_ATTR_ETHERNET))
-			SW_FLOW_KEY_PUT(match, phy.is_layer3, false, is_mask);
-		else
-			SW_FLOW_KEY_PUT(match, phy.is_layer3, true, is_mask);
+		is_layer3 = true;
+	else
+		is_layer3 = !(*attrs & (1ULL << OVS_KEY_ATTR_ETHERNET));
+	/* Packets from user space for execution only have metadata key
+	 * attributes.  OVS_KEY_ATTR_PACKET_ETHERTYPE is then used to specify
+	 * the starting layer of the packet.  Packets with Ethernet headers
+	 * have this attribute set to 0 */
+	if (*attrs & (1ULL << OVS_KEY_ATTR_PACKET_ETHERTYPE)) {
+		__be16 eth_type;
+
+		if (is_mask) {
+			/* Always exact match packet EtherType */
+			eth_type = htons(0xffff);
+		} else {
+			eth_type = nla_get_be16(a[OVS_KEY_ATTR_PACKET_ETHERTYPE]);
+			is_layer3 = ((eth_type == htons(ETH_P_IP)) ||
+				    (eth_type == htons(ETH_P_IPV6)));
+		}
+		SW_FLOW_KEY_PUT(match, eth.type, eth_type, is_mask);
 	}
+
+	SW_FLOW_KEY_PUT(match, phy.is_layer3, is_layer3, is_mask);
 	return 0;
 }
 
