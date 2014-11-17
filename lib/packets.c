@@ -207,6 +207,31 @@ eth_pop_vlan(struct ofpbuf *packet)
     }
 }
 
+/* Push Ethernet header onto 'packet' assuming it is layer 3 */
+void
+push_eth(struct ofpbuf *packet, const uint8_t dst[ETH_ADDR_LEN],
+         const uint8_t src[ETH_ADDR_LEN], ovs_be16 type)
+{
+    struct eth_header *eh;
+
+    eh = ofpbuf_resize_l2(packet, ETH_HEADER_LEN);
+    memcpy(eh->eth_dst, dst, ETH_ADDR_LEN);
+    memcpy(eh->eth_src, src, ETH_ADDR_LEN);
+    eh->eth_type = type;
+}
+
+/* Removes Ethernet header, including all VLAN and MPLS headers, from 'packet'.
+ *
+ * Previous to calling this function, 'ofpbuf_l3(packet)' must not be NULL */
+void
+pop_eth(struct ofpbuf *packet)
+{
+    ovs_assert(ofpbuf_l3(packet) != NULL);
+
+    ofpbuf_resize_l2_5(packet, -packet->l3_ofs);
+    ofpbuf_set_l2_5(packet, NULL);
+}
+
 /* Set ethertype of the packet. */
 static void
 set_ethertype(struct ofpbuf *packet, ovs_be16 eth_type)
