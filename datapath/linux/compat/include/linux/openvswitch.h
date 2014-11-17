@@ -329,6 +329,8 @@ enum ovs_key_attr {
 	OVS_KEY_ATTR_MPLS,      /* array of struct ovs_key_mpls.
 				 * The implementation may restrict
 				 * the accepted length of the array. */
+	OVS_KEY_ATTR_PACKET_ETHERTYPE,  /* be16 Ethernet type for packet
+                                         * execution */
 
 #ifdef __KERNEL__
 	/* Only used within kernel data path. */
