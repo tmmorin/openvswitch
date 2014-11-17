@@ -118,7 +118,7 @@ static int gre_rcv(struct sk_buff *skb,
 	ovs_flow_tun_info_init(&tun_info, ip_hdr(skb), 0, 0, key,
 			       filter_tnl_flags(tpi->flags), NULL, 0);
 
-	ovs_vport_receive(vport, skb, &tun_info);
+	ovs_vport_receive(vport, skb, &tun_info, false);
 	return PACKET_RCVD;
 }
 
@@ -297,6 +297,10 @@ static int gre_send(struct vport *vport, struct sk_buff *skb)
 		kfree_skb(skb);
 		return -EINVAL;
 	}
+
+	/* Reject layer 3 packets */
+	if (unlikely(skb->mac_len == 0))
+		return -EINVAL;
 
 	hlen = ip_gre_calc_hlen(OVS_CB(skb)->egress_tun_info->tunnel.tun_flags);
 

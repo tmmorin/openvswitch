@@ -59,7 +59,7 @@ static void stt_rcv(struct stt_sock *stt_sock, struct sk_buff *skb)
 	do {
 		next = skb->next;
 		skb->next = NULL;
-		ovs_vport_receive(vport, skb, &tun_info);
+		ovs_vport_receive(vport, skb, &tun_info, false);
 	} while ((skb = next));
 }
 

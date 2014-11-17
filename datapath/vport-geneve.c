@@ -100,7 +100,7 @@ static void geneve_rcv(struct geneve_sock *gs, struct sk_buff *skb)
 			       key, flags,
 			       geneveh->options, opts_len);
 
-	ovs_vport_receive(vport, skb, &tun_info);
+	ovs_vport_receive(vport, skb, &tun_info, false);
 }
 
 static int geneve_get_options(const struct vport *vport,
@@ -189,6 +189,10 @@ static int geneve_tnl_send(struct vport *vport, struct sk_buff *skb)
 	}
 
 	tun_key = &tun_info->tunnel;
+
+	/* Reject layer 3 packets */
+	if (unlikely(skb->mac_len == 0))
+		return -EINVAL;
 
 	saddr = tun_key->ipv4_src;
 	rt = find_route(ovs_dp_get_net(vport->dp),

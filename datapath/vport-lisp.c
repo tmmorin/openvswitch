@@ -228,8 +228,6 @@ static int lisp_rcv(struct sock *sk, struct sk_buff *skb)
 	struct iphdr *iph, *inner_iph;
 	struct ovs_tunnel_info tun_info;
 	__be64 key;
-	struct ethhdr *ethh;
-	__be16 protocol;
 
 	lisp_port = rcu_dereference_sk_user_data(sk);
 	if (unlikely(!lisp_port))
@@ -255,26 +253,16 @@ static int lisp_rcv(struct sock *sk, struct sk_buff *skb)
 	inner_iph = (struct iphdr *)(lisph + 1);
 	switch (inner_iph->version) {
 	case 4:
-		protocol = htons(ETH_P_IP);
+		skb->protocol = htons(ETH_P_IP);
 		break;
 	case 6:
-		protocol = htons(ETH_P_IPV6);
+		skb->protocol = htons(ETH_P_IPV6);
 		break;
 	default:
 		goto error;
 	}
-	skb->protocol = protocol;
 
-	/* Add Ethernet header */
-	ethh = (struct ethhdr *)skb_push(skb, ETH_HLEN);
-	memset(ethh, 0, ETH_HLEN);
-	ethh->h_dest[0] = 0x02;
-	ethh->h_source[0] = 0x02;
-	ethh->h_proto = protocol;
-
-	ovs_skb_postpush_rcsum(skb, skb->data, ETH_HLEN);
-
-	ovs_vport_receive(vport_from_priv(lisp_port), skb, &tun_info);
+	ovs_vport_receive(vport_from_priv(lisp_port), skb, &tun_info, true);
 	goto out;
 
 error:
@@ -395,18 +383,25 @@ static int lisp_send(struct vport *vport, struct sk_buff *skb)
 	int sent_len;
 	int err;
 
+	/* Reject layer 2 packets */
+	if (unlikely((skb->mac_len > 0) || vlan_tx_tag_present(skb))) {
+		err = -EINVAL;
+		goto error;
+	}
+
+	/* LISP only encapsulates IPv4 and IPv6 packets */
+	if (unlikely(skb->protocol != htons(ETH_P_IP) &&
+	    skb->protocol != htons(ETH_P_IPV6))) {
+		err = -EINVAL;
+		goto error;
+	}
+
 	if (unlikely(!OVS_CB(skb)->egress_tun_info)) {
 		err = -EINVAL;
 		goto error;
 	}
 
 	tun_key = &OVS_CB(skb)->egress_tun_info->tunnel;
-
-	if (skb->protocol != htons(ETH_P_IP) &&
-	    skb->protocol != htons(ETH_P_IPV6)) {
-		err = 0;
-		goto error;
-	}
 
 	/* Route lookup */
 	saddr = tun_key->ipv4_src;
@@ -432,11 +427,6 @@ static int lisp_send(struct vport *vport, struct sk_buff *skb)
 		if (unlikely(err))
 			goto err_free_rt;
 	}
-
-	/* Reset l2 headers. */
-	skb_pull(skb, network_offset);
-	skb_reset_mac_header(skb);
-	vlan_set_tci(skb, 0);
 
 	skb = udp_tunnel_handle_offloads(skb, false, false);
 	if (IS_ERR(skb)) {

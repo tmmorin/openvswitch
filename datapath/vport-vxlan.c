@@ -87,7 +87,7 @@ static void vxlan_rcv(struct vxlan_sock *vs, struct sk_buff *skb,
 			       udp_hdr(skb)->source, udp_hdr(skb)->dest,
 			       key, flags, &opts, sizeof(opts));
 
-	ovs_vport_receive(vport, skb, &tun_info);
+	ovs_vport_receive(vport, skb, &tun_info, false);
 }
 
 static int vxlan_get_options(const struct vport *vport, struct sk_buff *skb)
@@ -237,6 +237,10 @@ static int vxlan_tnl_send(struct vport *vport, struct sk_buff *skb)
 		err = -EINVAL;
 		goto error;
 	}
+
+	/* Reject layer 3 packets */
+	if (unlikely(skb->mac_len == 0))
+		return -EINVAL;
 
 	tun_key = &OVS_CB(skb)->egress_tun_info->tunnel;
 
