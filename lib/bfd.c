@@ -613,6 +613,7 @@ bfd_put_packet(struct bfd *bfd, struct dp_packet *p,
     ovs_assert(!(bfd->flags & FLAG_POLL) || !(bfd->flags & FLAG_FINAL));
 
     dp_packet_reserve(p, 2); /* Properly align after the ethernet header. */
+    dp_packet_set_frame(p, dp_packet_data(p));
     eth = dp_packet_put_uninit(p, sizeof *eth);
     memcpy(eth->eth_src,
            eth_addr_is_zero(bfd->local_eth_src) ? eth_src

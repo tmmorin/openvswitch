@@ -1014,6 +1014,12 @@ match_format(const struct match *match, struct ds *s, int priority)
         ofputil_format_port(f->in_port.ofp_port, s);
         ds_put_char(s, ',');
     }
+
+    if (f->base_layer && wc->masks.base_layer) {
+        format_uint32_masked(s, "base_layer", f->base_layer,
+                             wc->masks.base_layer);
+    }
+
     if (wc->masks.vlan_tci) {
         ovs_be16 vid_mask = wc->masks.vlan_tci & htons(VLAN_VID_MASK);
         ovs_be16 pcp_mask = wc->masks.vlan_tci & htons(VLAN_PCP_MASK);

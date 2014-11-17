@@ -273,11 +273,12 @@ static inline bool dp_packet_equal(const struct dp_packet *a, const struct dp_pa
            memcmp(dp_packet_data(a), dp_packet_data(b), dp_packet_size(a)) == 0;
 }
 
-/* Get the start if the Ethernet frame.  'l3_ofs' marks the end of the l2
- * headers, so return NULL if it is not set. */
+/* Get the start of the Ethernet frame.  'l3_ofs' marks the end of the l2
+ * headers, so return NULL if it is not set.  A 'l3_ofs' of 0 marks a layer 3
+ * packet, so return NULL in that case too. */
 static inline void * dp_packet_l2(const struct dp_packet *b)
 {
-    return (b->l3_ofs != UINT16_MAX) ? b->frame : NULL;
+    return (b->l3_ofs != UINT16_MAX && b->l3_ofs != 0) ? b->frame : NULL;
 }
 
 /* Sets the packet frame start pointer and resets all layer offsets.
@@ -377,6 +378,11 @@ static inline const void *dp_packet_get_nd_payload(const struct dp_packet *b)
 {
     return OVS_LIKELY(dp_packet_l4_size(b) >= ND_MSG_LEN)
         ? (const char *)dp_packet_l4(b) + ND_MSG_LEN : NULL;
+}
+
+static inline bool dp_packet_is_layer3_packet(const struct dp_packet *b)
+{
+    return (b->frame == dp_packet_data(b)) && (b->l3_ofs == 0);
 }
 
 #ifdef DPDK_NETDEV

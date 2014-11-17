@@ -2015,6 +2015,14 @@ parse_odp_packet(const struct dpif_netlink *dpif, struct ofpbuf *buf,
     dp_packet_set_data(&upcall->packet,
                     (char *)dp_packet_data(&upcall->packet) + sizeof(struct nlattr));
     dp_packet_set_size(&upcall->packet, nl_attr_get_size(a[OVS_PACKET_ATTR_PACKET]));
+    dp_packet_set_frame(&upcall->packet, dp_packet_data(&upcall->packet));
+
+    /* Set the correct layer based on the presence of OVS_KEY_ATTR_ETHERNET */
+    if (nl_attr_find__(upcall->key, upcall->key_len, OVS_KEY_ATTR_ETHERNET)) {
+        dp_packet_set_l3(&upcall->packet, NULL);
+    } else {
+        upcall->packet.l3_ofs = 0;
+    }
 
     *dp_ifindex = ovs_header->dp_ifindex;
 

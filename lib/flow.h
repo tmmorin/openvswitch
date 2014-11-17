@@ -75,6 +75,11 @@ const char *flow_tun_flag_to_string(uint32_t flags);
 /* Maximum number of supported MPLS labels. */
 #define FLOW_MAX_MPLS_LABELS 3
 
+enum base_layer {
+    LAYER_2 = 0,
+    LAYER_3 = 1
+};
+
 /*
  * A flow in the network.
  *
@@ -91,6 +96,10 @@ const char *flow_tun_flag_to_string(uint32_t flags);
  * lower layer fields are first used to determine if the later fields need to
  * be looked at.  This enables better wildcarding for datapath flows.
  *
+ * The starting layer is specified by 'base_layer'.  When 'base_layer' is
+ * LAYER_3, dl_src, dl_tci, and vlan_tci are not used for matching. The
+ * dl_type field is still used to specify the layer 3 protocol.
+ *
  * NOTE: Order of the fields is significant, any change in the order must be
  * reflected in miniflow_extract()!
  */
@@ -105,9 +114,10 @@ struct flow {
                                  * computation is opaque to the user space. */
     union flow_in_port in_port; /* Input port.*/
     uint32_t recirc_id;         /* Must be exact match. */
+    uint32_t base_layer;        /* Fields start at this layer */
     uint32_t conj_id;           /* Conjunction ID. */
     ofp_port_t actset_output;   /* Output port in action set. */
-    uint8_t pad1[6];            /* Pad to 64 bits. */
+    uint8_t pad1[2];            /* Pad to 64 bits. */
 
     /* L2, Order the same as in the Ethernet header! (64-bit aligned) */
     uint8_t dl_dst[ETH_ADDR_LEN]; /* Ethernet destination address. */

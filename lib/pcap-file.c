@@ -185,6 +185,7 @@ ovs_pcap_read(FILE *file, struct dp_packet **bufp, long long int *when)
         dp_packet_delete(buf);
         return error;
     }
+    dp_packet_set_frame(buf, dp_packet_data(buf));
     *bufp = buf;
     return 0;
 }

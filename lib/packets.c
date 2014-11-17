@@ -391,6 +391,8 @@ eth_from_hex(const char *hex, struct dp_packet **packetp)
         return "Packet data too short for Ethernet";
     }
 
+    dp_packet_set_frame(packet, dp_packet_data(packet));
+
     return NULL;
 }
 

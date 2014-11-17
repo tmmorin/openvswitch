@@ -1375,7 +1375,8 @@ dpif_print_packet(struct dpif *dpif, struct dpif_upcall *upcall)
         char *packet;
 
         packet = ofp_packet_to_string(dp_packet_data(&upcall->packet),
-                                      dp_packet_size(&upcall->packet));
+                                      dp_packet_size(&upcall->packet),
+                                      dp_packet_is_layer3_packet(&upcall->packet));
 
         ds_init(&flow);
         odp_flow_key_format(upcall->key, upcall->key_len, &flow);
@@ -1671,7 +1672,8 @@ log_execute_message(struct dpif *dpif, const struct dpif_execute *execute,
         char *packet;
 
         packet = ofp_packet_to_string(dp_packet_data(execute->packet),
-                                      dp_packet_size(execute->packet));
+                                      dp_packet_size(execute->packet),
+                                      dp_packet_is_layer3_packet(execute->packet));
         ds_put_format(&ds, "%s: %sexecute ",
                       dpif_name(dpif),
                       (subexecute ? "sub-"
