@@ -679,7 +679,7 @@ type_run(const char *type)
                                  ofport->rstp_port, ofport->qdscp,
                                  ofport->n_qdscp, ofport->up.pp.config,
                                  ofport->up.pp.state, ofport->is_tunnel,
-                                 ofport->may_enable);
+                                 ofport->may_enable, ofport->is_layer3);
             }
             xlate_txn_commit();
         }
@@ -1146,6 +1146,7 @@ check_variable_length_userdata(struct dpif_backer *backer)
     ofpbuf_init(&packet, ETH_HEADER_LEN);
     eth = ofpbuf_put_zeros(&packet, ETH_HEADER_LEN);
     eth->eth_type = htons(0x1234);
+    ofpbuf_set_frame(&packet, ofpbuf_data(&packet));
 
     /* Execute the actions.  On older datapaths this fails with ERANGE, on
      * newer datapaths it succeeds. */
