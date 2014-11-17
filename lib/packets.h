@@ -196,6 +196,10 @@ void eth_addr_bitand(const uint8_t src[ETH_ADDR_LEN],
                      const uint8_t mask[ETH_ADDR_LEN],
                      uint8_t dst[ETH_ADDR_LEN]);
 
+void push_eth(struct ofpbuf *packet, const uint8_t dst[ETH_ADDR_LEN],
+              const uint8_t src[ETH_ADDR_LEN], ovs_be16 type);
+void pop_eth(struct ofpbuf *packet);
+
 void set_mpls_lse(struct ofpbuf *, ovs_be32 label);
 void push_mpls(struct ofpbuf *packet, ovs_be16 ethtype, ovs_be32 lse);
 void pop_mpls(struct ofpbuf *, ovs_be16 ethtype);
