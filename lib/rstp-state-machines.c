@@ -105,11 +105,12 @@ static int topology_change_sm(struct rstp_port *)
 /* port_timers_sm() not defined as a state machine */
 
 void
-process_received_bpdu__(struct rstp_port *p, const void *bpdu,
+process_received_bpdu__(struct rstp_port *p, const void *bpdu_,
                         size_t bpdu_size)
     OVS_REQUIRES(rstp_mutex)
 {
-    struct rstp *rstp =  p->rstp;
+    struct rstp *rstp = p->rstp;
+    struct rstp_bpdu *bpdu = (struct rstp_bpdu *)bpdu_;
 
     if (!p->port_enabled) {
         return;
@@ -117,6 +118,20 @@ process_received_bpdu__(struct rstp_port *p, const void *bpdu,
     if (p->rcvd_bpdu) {
         return;
     }
+
+    /* [9.2.9 Encoding of Port Role values]
+     * NOTE. If the Unknown value of the Port Role parameter is received, the
+     * state machines will effectively treat the RST BPDU as if it were a
+     * Configuration BPDU.
+     */
+    if (bpdu->bpdu_type == RAPID_SPANNING_TREE_BPDU) {
+        uint8_t role = (bpdu->flags & ROLE_FLAG_MASK) >> ROLE_FLAG_SHIFT;
+
+        if (role == PORT_UNKN) {
+            bpdu->bpdu_type = CONFIGURATION_BPDU;
+        }
+    }
+
     if (validate_received_bpdu(p, bpdu, bpdu_size) == 0) {
         p->rcvd_bpdu = true;
         p->rx_rstp_bpdu_cnt++;
@@ -297,7 +312,7 @@ updt_roles_tree__(struct rstp *r)
 
         if ((candidate_vector.designated_bridge_id & 0xffffffffffffULL) ==
             (r->bridge_priority.designated_bridge_id & 0xffffffffffffULL)) {
-            break;
+            continue;
         }
         if (compare_rstp_priority_vectors(&candidate_vector,
                                           &best_vector) == SUPERIOR) {
@@ -1014,8 +1029,21 @@ rcv_info(struct rstp_port *p)
 
     cp = compare_rstp_priority_vectors(&p->msg_priority, &p->port_priority);
     ct = rstp_times_equal(&p->port_times, &p->msg_times);
-    role =
-        (p->received_bpdu_buffer.flags & ROLE_FLAG_MASK) >> ROLE_FLAG_SHIFT;
+    /* Configuration BPDU conveys a Designated Port Role. */
+    if (p->received_bpdu_buffer.bpdu_type == CONFIGURATION_BPDU) {
+        role = PORT_DES;
+    } else {
+        role =
+            (p->received_bpdu_buffer.flags & ROLE_FLAG_MASK) >> ROLE_FLAG_SHIFT;
+    }
+
+    /* 802.1D-2004 does not report this behaviour.
+     * 802.1Q-2008 says set rcvdTcn. */
+    if (p->received_bpdu_buffer.bpdu_type ==
+            TOPOLOGY_CHANGE_NOTIFICATION_BPDU) {
+        p->rcvd_tcn = true;
+        return OTHER_INFO;
+    }
 
     /* Returns SuperiorDesignatedInfo if:
      * a) The received message conveys a Designated Port Role, and
@@ -1027,9 +1055,7 @@ rcv_info(struct rstp_port *p)
      *     17.19.22).
      * NOTE: Configuration BPDU explicitly conveys a Designated Port Role.
      */
-    if ((role == PORT_DES
-         || p->received_bpdu_buffer.bpdu_type == CONFIGURATION_BPDU)
-        && (cp == SUPERIOR || (cp == SAME && ct == false))) {
+    if (role == PORT_DES && (cp == SUPERIOR || (cp == SAME && ct == false))) {
         return SUPERIOR_DESIGNATED_INFO;
 
         /* Returns RepeatedDesignatedInfo if:
@@ -1629,11 +1655,11 @@ port_role_transition_sm(struct rstp_port *p)
             } else if ((all_synced(r) && !p->agree)
                        || (p->proposed && p->agree)) {
                 p->port_role_transition_sm_state =
-                    PORT_ROLE_TRANSITION_SM_ALTERNATE_AGREED;
+                    PORT_ROLE_TRANSITION_SM_ALTERNATE_AGREED_EXEC;
             }
         }
         break;
-    case PORT_ROLE_TRANSITION_SM_ALTERNATE_AGREED:
+    case PORT_ROLE_TRANSITION_SM_ALTERNATE_AGREED_EXEC:
         p->proposed = false;
         p->agree = true;
         p->new_info = true;
@@ -1936,7 +1962,7 @@ topology_change_sm(struct rstp_port *p)
         break;
     case TOPOLOGY_CHANGE_SM_NOTIFIED_TCN_EXEC:
         new_tc_while(p);
-        p->topology_change_sm_state = TOPOLOGY_CHANGE_SM_ACTIVE;
+        p->topology_change_sm_state = TOPOLOGY_CHANGE_SM_NOTIFIED_TC_EXEC;
         break;
     default:
         OVS_NOT_REACHED();
@@ -1966,12 +1992,14 @@ static enum vector_comparison
 compare_rstp_priority_vectors(const struct rstp_priority_vector *v1,
                              const struct rstp_priority_vector *v2)
 {
-    VLOG_DBG("v1: "RSTP_ID_FMT", %u, "RSTP_ID_FMT", %d",
+    VLOG_DBG("v1: "RSTP_ID_FMT", %u, "RSTP_ID_FMT", %d, %d",
              RSTP_ID_ARGS(v1->root_bridge_id), v1->root_path_cost,
-             RSTP_ID_ARGS(v1->designated_bridge_id), v1->designated_port_id);
-    VLOG_DBG("v2: "RSTP_ID_FMT", %u, "RSTP_ID_FMT", %d",
+             RSTP_ID_ARGS(v1->designated_bridge_id), v1->designated_port_id,
+             v1->bridge_port_id);
+    VLOG_DBG("v2: "RSTP_ID_FMT", %u, "RSTP_ID_FMT", %d, %d",
              RSTP_ID_ARGS(v2->root_bridge_id), v2->root_path_cost,
-             RSTP_ID_ARGS(v2->designated_bridge_id), v2->designated_port_id);
+             RSTP_ID_ARGS(v2->designated_bridge_id), v2->designated_port_id,
+             v2->bridge_port_id);
 
     /* [17.6]
      * This message priority vector is superior to the port priority vector and
@@ -2006,6 +2034,14 @@ compare_rstp_priority_vectors(const struct rstp_priority_vector *v1,
             && v1->root_path_cost == v2->root_path_cost
             && v1->designated_bridge_id == v2->designated_bridge_id
             && v1->designated_port_id == v2->designated_port_id) {
+            if (v1->bridge_port_id < v2->bridge_port_id) {
+                VLOG_DBG("superior");
+                return SUPERIOR;
+            }
+            else if (v1->bridge_port_id > v2->bridge_port_id) {
+                VLOG_DBG("inferior");
+                return INFERIOR;
+            }
             VLOG_DBG("superior_same");
             return SAME;
         }

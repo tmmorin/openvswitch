@@ -458,11 +458,10 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
                 packet->l3_ofs = (char *)data - frame;
 	} else {
 		/* We assume L3 packets are either IPv4 or IPv6 */
-		dl_type = get_l3_eth_type(packet);
+		dl_type = get_l3_eth_type(packet);  
 		miniflow_push_be16(mf, dl_type, dl_type);
 		miniflow_push_be16(mf, vlan_tci, 0);
 	}
-    }
 
     nw_frag = 0;
     if (OVS_LIKELY(dl_type == htons(ETH_TYPE_IP))) {
@@ -2061,8 +2060,8 @@ miniflow_equal(const struct miniflow *a, const struct miniflow *b)
     return true;
 }
 
-/* Returns true if 'a' and 'b' are equal at the places where there are 1-bits
- * in 'mask', false if they differ. */
+/* Returns false if 'a' and 'b' differ at the places where there are 1-bits
+ * in 'mask', true otherwise. */
 bool
 miniflow_equal_in_minimask(const struct miniflow *a, const struct miniflow *b,
                            const struct minimask *mask)

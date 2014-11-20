@@ -473,11 +473,9 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 
 	/* Link layer. */
 	if (key->phy.is_layer3) {
-		skb_reset_network_header(skb);  /* maybe not correct for MPLS */
+		skb_reset_network_header(skb);  /* maybe not correct for MPLS */  /* remove in lori ... v8 */
 
 		key->eth.tci = 0;
-		/* key->eth.type = ethertype_from_ip_version(skb); */
-		/* not needed anymore... */
 	} else {
 		eth = eth_hdr(skb);
 		ether_addr_copy(key->eth.src, eth->h_source);
@@ -494,12 +492,11 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 		else if (eth->h_proto == htons(ETH_P_8021Q))
 			if (unlikely(parse_vlan(skb, key)))
 				return -ENOMEM;
-
 		key->eth.type = parse_ethertype(skb);
 		if (unlikely(key->eth.type == htons(0)))
 			return -ENOMEM;
 
-		skb_reset_network_header(skb);
+		skb_reset_network_header(skb);  /* not in lori's v8 */
 	}
 
 	skb_reset_mac_len(skb);

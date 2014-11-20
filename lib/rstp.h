@@ -120,6 +120,12 @@ enum rstp_port_role {
     ROLE_DISABLED
 };
 
+enum rstp_admin_point_to_point_mac_state {
+    RSTP_ADMIN_P2P_MAC_FORCE_FALSE,
+    RSTP_ADMIN_P2P_MAC_FORCE_TRUE,
+    RSTP_ADMIN_P2P_MAC_AUTO
+};
+
 struct rstp;
 struct rstp_port;
 struct ofproto_rstp_settings;
@@ -151,7 +157,7 @@ void rstp_tick_timers(struct rstp *)
 void rstp_port_received_bpdu(struct rstp_port *, const void *bpdu,
                              size_t bpdu_size)
     OVS_EXCLUDED(rstp_mutex);
-bool rstp_check_and_reset_fdb_flush(struct rstp *)
+void *rstp_check_and_reset_fdb_flush(struct rstp *, struct rstp_port **)
     OVS_EXCLUDED(rstp_mutex);
 void *rstp_get_next_changed_port_aux(struct rstp *, struct rstp_port **)
     OVS_EXCLUDED(rstp_mutex);
@@ -211,7 +217,8 @@ uint32_t rstp_convert_speed_to_cost(unsigned int speed);
 
 void rstp_port_set(struct rstp_port *, uint16_t port_num, int priority,
                    uint32_t path_cost, bool is_admin_edge, bool is_auto_edge,
-                   bool do_mcheck, void *aux)
+                   enum rstp_admin_point_to_point_mac_state admin_p2p_mac_state,
+                   bool admin_port_state, bool do_mcheck, void *aux)
     OVS_EXCLUDED(rstp_mutex);
 
 enum rstp_state rstp_port_get_state(const struct rstp_port *)
@@ -267,26 +274,20 @@ rstp_should_manage_bpdu(enum rstp_state state)
 
 /* Returns true if 'state' is one in which packets received on a port should
  * be forwarded, false otherwise.
- *
- * Returns true if 'state' is RSTP_DISABLED, since presumably in that case the
- * port should still work, just not have RSTP applied to it.
  */
 static inline bool
 rstp_forward_in_state(enum rstp_state state)
 {
-    return (state == RSTP_DISABLED || state == RSTP_FORWARDING);
+    return (state == RSTP_FORWARDING);
 }
 
 /* Returns true if 'state' is one in which MAC learning should be done on
  * packets received on a port, false otherwise.
- *
- * Returns true if 'state' is RSTP_DISABLED, since presumably in that case the
- * port should still work, just not have RSTP applied to it. */
+ */
 static inline bool
 rstp_learn_in_state(enum rstp_state state)
 {
-    return (state == RSTP_DISABLED || state == RSTP_LEARNING ||
-            state == RSTP_FORWARDING);
+    return (state == RSTP_LEARNING || state == RSTP_FORWARDING);
 }
 
 #endif /* rstp.h */

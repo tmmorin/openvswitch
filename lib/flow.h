@@ -720,6 +720,7 @@ pkt_metadata_from_flow(const struct flow *flow)
     md.pkt_mark = flow->pkt_mark;
     md.in_port = flow->in_port;
     md.base_layer = flow->base_layer;
+    md.protocol = flow->dl_type;
 
     return md;
 }

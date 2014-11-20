@@ -453,7 +453,8 @@ destroy_classifier(struct classifier *cls)
 {
     struct test_rule *rule;
 
-    CLS_FOR_EACH_SAFE (rule, cls_rule, cls) {
+    classifier_defer(cls);
+    CLS_FOR_EACH (rule, cls_rule, cls) {
         if (classifier_remove(cls, &rule->cls_rule)) {
             ovsrcu_postpone(free_rule, rule);
         }
@@ -496,6 +497,7 @@ trie_verify(const rcu_trie_ptr *trie, unsigned int ofs, unsigned int n_bits)
 
 static void
 verify_tries(struct classifier *cls)
+    OVS_NO_THREAD_SAFETY_ANALYSIS
 {
     unsigned int n_rules = 0;
     int i;
@@ -504,14 +506,13 @@ verify_tries(struct classifier *cls)
         n_rules += trie_verify(&cls->tries[i].root, 0,
                                cls->tries[i].field->n_bits);
     }
-    ovs_mutex_lock(&cls->mutex);
     assert(n_rules <= cls->n_rules);
-    ovs_mutex_unlock(&cls->mutex);
 }
 
 static void
 check_tables(const struct classifier *cls, int n_tables, int n_rules,
              int n_dups)
+    OVS_NO_THREAD_SAFETY_ANALYSIS
 {
     const struct cls_subtable *table;
     struct test_rule *test_rule;
@@ -543,11 +544,8 @@ check_tables(const struct classifier *cls, int n_tables, int n_rules,
         }
 
         assert(!cmap_is_empty(&table->rules));
-
-        ovs_mutex_lock(&cls->mutex);
         assert(trie_verify(&table->ports_trie, 0, table->ports_mask_len)
-               == (table->ports_mask_len ? table->n_rules : 0));
-        ovs_mutex_unlock(&cls->mutex);
+               == (table->ports_mask_len ? cmap_count(&table->rules) : 0));
 
         found_tables++;
         CMAP_FOR_EACH (head, cmap_node, &table->rules) {
@@ -562,7 +560,6 @@ check_tables(const struct classifier *cls, int n_tables, int n_rules,
             }
 
             found_rules++;
-            ovs_mutex_lock(&cls->mutex);
             RCULIST_FOR_EACH (rule, list, &head->list) {
                 assert(rule->priority < prev_priority);
                 assert(rule->priority <= table->max_priority);
@@ -570,17 +567,12 @@ check_tables(const struct classifier *cls, int n_tables, int n_rules,
                 prev_priority = rule->priority;
                 found_rules++;
                 found_dups++;
-                ovs_mutex_unlock(&cls->mutex);
                 assert(classifier_find_rule_exactly(cls, rule->cls_rule)
                        == rule->cls_rule);
-                ovs_mutex_lock(&cls->mutex);
             }
-            ovs_mutex_unlock(&cls->mutex);
         }
-        ovs_mutex_lock(&cls->mutex);
         assert(table->max_priority == max_priority);
         assert(table->max_count == max_count);
-        ovs_mutex_unlock(&cls->mutex);
     }
 
     assert(found_tables == cmap_count(&cls->subtables_map));
@@ -794,6 +786,7 @@ test_rule_replacement(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
         ovsrcu_postpone(free_rule, rule1);
         compare_classifiers(&cls, &tcls);
         check_tables(&cls, 1, 1, 0);
+        classifier_defer(&cls);
         classifier_remove(&cls, &rule2->cls_rule);
 
         tcls_destroy(&tcls);
@@ -930,6 +923,7 @@ test_many_rules_in_one_list (int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
                 check_tables(&cls, n > 0, n, n - 1);
             }
 
+            classifier_defer(&cls);
             for (i = 0; i < N_RULES; i++) {
                 if (classifier_remove(&cls, &rules[i]->cls_rule)) {
                     ovsrcu_postpone(free_rule, rules[i]);
@@ -1076,8 +1070,7 @@ test_many_rules_in_n_tables(int n_tables)
 
             target = clone_rule(tcls.rules[random_range(tcls.n_rules)]);
 
-            CLS_FOR_EACH_TARGET_SAFE (rule, cls_rule, &cls,
-                                      &target->cls_rule) {
+            CLS_FOR_EACH_TARGET (rule, cls_rule, &cls, &target->cls_rule) {
                 if (classifier_remove(&cls, &rule->cls_rule)) {
                     ovsrcu_postpone(free_rule, rule);
                 }

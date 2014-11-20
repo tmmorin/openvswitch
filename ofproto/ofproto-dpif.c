@@ -140,6 +140,7 @@ static void bundle_destroy(struct ofbundle *);
 static void bundle_del_port(struct ofport_dpif *);
 static void bundle_run(struct ofbundle *);
 static void bundle_wait(struct ofbundle *);
+static void bundle_flush_macs(struct ofbundle *, bool);
 
 static void stp_run(struct ofproto_dpif *ofproto);
 static void stp_wait(struct ofproto_dpif *ofproto);
@@ -1403,7 +1404,7 @@ destruct(struct ofproto *ofproto_)
     hmap_remove(&all_ofproto_dpifs, &ofproto->all_ofproto_dpifs_node);
 
     OFPROTO_FOR_EACH_TABLE (table, &ofproto->up) {
-        CLS_FOR_EACH_SAFE (rule, up.cr, &table->cls) {
+        CLS_FOR_EACH (rule, up.cr, &table->cls) {
             ofproto_rule_delete(&ofproto->up, &rule->up);
         }
     }
@@ -2128,11 +2129,11 @@ update_rstp_port_state(struct ofport_dpif *ofport)
                  rstp_state_name(ofport->rstp_state),
                  rstp_state_name(state));
         if (rstp_learn_in_state(ofport->rstp_state)
-                != rstp_learn_in_state(state)) {
-            /* xxx Learning action flows should also be flushed. */
-            ovs_rwlock_wrlock(&ofproto->ml->rwlock);
-            mac_learning_flush(ofproto->ml);
-            ovs_rwlock_unlock(&ofproto->ml->rwlock);
+            != rstp_learn_in_state(state)) {
+            /* XXX: Learning action flows should also be flushed. */
+            if (ofport->bundle) {
+                bundle_flush_macs(ofport->bundle, false);
+            }
         }
         fwd_change = rstp_forward_in_state(ofport->rstp_state)
             != rstp_forward_in_state(state);
@@ -2172,16 +2173,13 @@ rstp_run(struct ofproto_dpif *ofproto)
         while ((ofport = rstp_get_next_changed_port_aux(ofproto->rstp, &rp))) {
             update_rstp_port_state(ofport);
         }
+        rp = NULL;
+        ofport = NULL;
         /* FIXME: This check should be done on-event (i.e., when setting
          * p->fdb_flush) and not periodically.
          */
-        if (rstp_check_and_reset_fdb_flush(ofproto->rstp)) {
-            ovs_rwlock_wrlock(&ofproto->ml->rwlock);
-            /* FIXME: RSTP should be able to flush the entries pertaining to a
-             * single port, not the whole table.
-             */
-            mac_learning_flush(ofproto->ml);
-            ovs_rwlock_unlock(&ofproto->ml->rwlock);
+        while ((ofport = rstp_check_and_reset_fdb_flush(ofproto->rstp, &rp))) {
+            bundle_flush_macs(ofport->bundle, false);
         }
     }
 }
@@ -2434,7 +2432,9 @@ set_rstp_port(struct ofport *ofport_,
     }
 
     rstp_port_set(rp, s->port_num, s->priority, s->path_cost,
-                  s->admin_edge_port, s->auto_edge, s->mcheck, ofport);
+                  s->admin_edge_port, s->auto_edge,
+                  s->admin_p2p_mac_state, s->admin_port_state, s->mcheck,
+                  ofport);
     update_rstp_port_state(ofport);
     /* Synchronize operational status. */
     rstp_port_set_mac_operational(rp, ofport->may_enable);
@@ -2550,7 +2550,8 @@ bundle_update(struct ofbundle *bundle)
     LIST_FOR_EACH (port, bundle_node, &bundle->ports) {
         if (port->up.pp.config & OFPUTIL_PC_NO_FLOOD
             || port->is_layer3
-            || !stp_forward_in_state(port->stp_state)) {
+            || (bundle->ofproto->stp && !stp_forward_in_state(port->stp_state))
+            || (bundle->ofproto->rstp && !rstp_forward_in_state(port->rstp_state))) {
             bundle->floodable = false;
             break;
         }
@@ -2598,7 +2599,8 @@ bundle_add_port(struct ofbundle *bundle, ofp_port_t ofp_port,
         list_push_back(&bundle->ports, &port->bundle_node);
         if (port->up.pp.config & OFPUTIL_PC_NO_FLOOD
             || port->is_layer3
-            || !stp_forward_in_state(port->stp_state)) {
+            || (bundle->ofproto->stp && !stp_forward_in_state(port->stp_state))
+            || (bundle->ofproto->rstp && !rstp_forward_in_state(port->rstp_state))) {
             bundle->floodable = false;
         }
     }

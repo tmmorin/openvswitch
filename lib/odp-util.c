@@ -3085,10 +3085,11 @@ odp_key_from_pkt_metadata(struct ofpbuf *buf, const struct pkt_metadata *md)
         nl_msg_put_odp_port(buf, OVS_KEY_ATTR_IN_PORT, md->in_port.odp_port);
     }
 
-    /* Add unintialized OVS_KEY_ATTR_ETHERNET for layer 2 packets; lack of
-     * this key attribute signals layer 3 packet */
     if (md->base_layer == LAYER_2) {
-        nl_msg_put_unspec_uninit(buf, OVS_KEY_ATTR_ETHERNET, sizeof *eth_key);
+        nl_msg_put_unspec_uninit(buf, OVS_KEY_ATTR_ETHERNET,
+                                 sizeof(struct ovs_key_ethernet));
+    } else {
+        nl_msg_put_be16(buf, OVS_KEY_ATTR_ETHERTYPE, md->protocol);
     }
 }
 
@@ -3101,7 +3102,8 @@ odp_key_to_pkt_metadata(const struct nlattr *key, size_t key_len,
     size_t left;
     uint32_t wanted_attrs = 1u << OVS_KEY_ATTR_PRIORITY |
         1u << OVS_KEY_ATTR_SKB_MARK | 1u << OVS_KEY_ATTR_TUNNEL |
-        1u << OVS_KEY_ATTR_IN_PORT | 1u << OVS_KEY_ATTR_ETHERNET;
+        1u << OVS_KEY_ATTR_IN_PORT | 1u << OVS_KEY_ATTR_ETHERNET |
+        1u << OVS_KEY_ATTR_ETHERTYPE;
 
     *md = PKT_METADATA_INITIALIZER(ODPP_NONE);
 
@@ -3150,6 +3152,12 @@ odp_key_to_pkt_metadata(const struct nlattr *key, size_t key_len,
             break;
         case OVS_KEY_ATTR_ETHERNET:
             md->base_layer = LAYER_2;
+            wanted_attrs &= ~(1u << OVS_KEY_ATTR_ETHERNET);
+            break;
+        case OVS_KEY_ATTR_ETHERTYPE:
+            md->protocol = nl_attr_get_be16(nla);
+            wanted_attrs &= ~(1u << OVS_KEY_ATTR_ETHERTYPE);
+            break;
         default:
             break;
         }

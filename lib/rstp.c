@@ -104,11 +104,15 @@ static void rstp_port_set_port_number__(struct rstp_port *,
 static void rstp_port_set_path_cost__(struct rstp_port *, uint32_t path_cost)
     OVS_REQUIRES(rstp_mutex);
 static void rstp_port_set_administrative_bridge_port__(struct rstp_port *,
-                                                       uint8_t admin_port_state)
+                                                       uint8_t admin_port_state,
+                                                       bool initializing)
     OVS_REQUIRES(rstp_mutex);
 static void rstp_port_set_admin_edge__(struct rstp_port *, bool admin_edge)
     OVS_REQUIRES(rstp_mutex);
 static void rstp_port_set_auto_edge__(struct rstp_port *, bool auto_edge)
+    OVS_REQUIRES(rstp_mutex);
+static void rstp_port_set_admin_point_to_point_mac__(struct rstp_port *,
+        enum rstp_admin_point_to_point_mac_state admin_p2p_mac_state)
     OVS_REQUIRES(rstp_mutex);
 static void rstp_port_set_mcheck__(struct rstp_port *, bool mcheck)
     OVS_REQUIRES(rstp_mutex);
@@ -520,8 +524,9 @@ static void
 rstp_set_bridge_max_age__(struct rstp *rstp, int new_max_age)
     OVS_REQUIRES(rstp_mutex)
 {
-    if (new_max_age >= RSTP_MIN_BRIDGE_MAX_AGE &&
-        new_max_age <= RSTP_MAX_BRIDGE_MAX_AGE) {
+    if (rstp->bridge_max_age != new_max_age
+        && new_max_age >= RSTP_MIN_BRIDGE_MAX_AGE
+        && new_max_age <= RSTP_MAX_BRIDGE_MAX_AGE) {
         /* [17.13] */
         if ((2 * (rstp->bridge_forward_delay - 1) >= new_max_age)
             && (new_max_age >= 2 * rstp->bridge_hello_time)) {
@@ -530,6 +535,8 @@ rstp_set_bridge_max_age__(struct rstp *rstp, int new_max_age)
 
             rstp->bridge_max_age = new_max_age;
             rstp->bridge_times.max_age = new_max_age;
+            rstp->changes = true;
+            updt_roles_tree__(rstp);
         }
     }
 }
@@ -548,13 +555,16 @@ static void
 rstp_set_bridge_forward_delay__(struct rstp *rstp, int new_forward_delay)
     OVS_REQUIRES(rstp_mutex)
 {
-    if (new_forward_delay >= RSTP_MIN_BRIDGE_FORWARD_DELAY
-        && new_forward_delay <= RSTP_MAX_BRIDGE_FORWARD_DELAY) {
+    if (rstp->bridge_forward_delay != new_forward_delay
+            && new_forward_delay >= RSTP_MIN_BRIDGE_FORWARD_DELAY
+            && new_forward_delay <= RSTP_MAX_BRIDGE_FORWARD_DELAY) {
         if (2 * (new_forward_delay - 1) >= rstp->bridge_max_age) {
             VLOG_DBG("%s: set RSTP Forward Delay to %d", rstp->name,
                      new_forward_delay);
             rstp->bridge_forward_delay = new_forward_delay;
             rstp->bridge_times.forward_delay = new_forward_delay;
+            rstp->changes = true;
+            updt_roles_tree__(rstp);
         }
     }
 }
@@ -766,31 +776,51 @@ rstp_get_root_path_cost(const struct rstp *rstp)
     return cost;
 }
 
-/* Returns true if something has happened to 'rstp' which necessitates
- * flushing the client's MAC learning table.
- */
-bool
-rstp_check_and_reset_fdb_flush(struct rstp *rstp)
+/* Finds a port which needs to flush its own MAC learning table.  A NULL
+ * pointer is returned if no port needs to flush its MAC learning table.
+ * '*port' needs to be NULL in the first call to start the iteration.  If
+ * '*port' is passed as non-NULL, it must be the value set by the last
+ * invocation of this function. */
+void *
+rstp_check_and_reset_fdb_flush(struct rstp *rstp, struct rstp_port **port)
     OVS_EXCLUDED(rstp_mutex)
 {
-    bool needs_flush;
-    struct rstp_port *p;
-
-    needs_flush = false;
+    void *aux = NULL;
 
     ovs_mutex_lock(&rstp_mutex);
-    HMAP_FOR_EACH (p, node, &rstp->ports) {
-        if (p->fdb_flush) {
-            needs_flush = true;
-            /* fdb_flush should be reset by the filtering database
-             * once the entries are removed if rstp_version is TRUE, and
-             * immediately if stp_version is TRUE.*/
-            p->fdb_flush = false;
+    if (*port == NULL) {
+        struct rstp_port *p;
+
+        HMAP_FOR_EACH (p, node, &rstp->ports) {
+            if (p->fdb_flush) {
+                aux = p->aux;
+                *port = p;
+                goto out;
+            }
+        }
+    } else { /* continue */
+        struct rstp_port *p = *port;
+
+        HMAP_FOR_EACH_CONTINUE (p, node, &rstp->ports) {
+            if (p->fdb_flush) {
+                aux = p->aux;
+                *port = p;
+                goto out;
+            }
         }
     }
+    /* No port needs flushing. */
+    *port = NULL;
+out:
+    /* fdb_flush should be reset by the filtering database
+     * once the entries are removed if rstp_version is TRUE, and
+     * immediately if stp_version is TRUE.*/
+    if (*port != NULL) {
+        (*port)->fdb_flush = false;
+    }
     ovs_mutex_unlock(&rstp_mutex);
-    return needs_flush;
-}
+    return aux;
+    }
 
 /* Finds a port whose state has changed, and returns the aux pointer set for
  * the port.  A NULL pointer is returned when no changed port is found.  On
@@ -919,14 +949,25 @@ rstp_port_set_mac_operational(struct rstp_port *p, bool new_mac_operational)
 /* Sets the port Administrative Bridge Port parameter. */
 static void
 rstp_port_set_administrative_bridge_port__(struct rstp_port *p,
-                                           uint8_t admin_port_state)
+                                           uint8_t admin_port_state,
+                                           bool initializing)
     OVS_REQUIRES(rstp_mutex)
 {
+    VLOG_DBG("%s, port %u: set RSTP port admin-port-state to %d",
+             p->rstp->name, p->port_number, admin_port_state);
+
     if (admin_port_state == RSTP_ADMIN_BRIDGE_PORT_STATE_DISABLED
         || admin_port_state == RSTP_ADMIN_BRIDGE_PORT_STATE_ENABLED) {
 
         p->is_administrative_bridge_port = admin_port_state;
         update_port_enabled__(p);
+
+        if (!initializing) {
+            struct rstp *rstp = p->rstp;
+
+            rstp->changes = true;
+            move_rstp__(rstp);
+        }
     }
 }
 
@@ -950,7 +991,8 @@ rstp_initialize_port_defaults__(struct rstp_port *p)
     OVS_REQUIRES(rstp_mutex)
 {
     rstp_port_set_administrative_bridge_port__(p,
-                                         RSTP_ADMIN_BRIDGE_PORT_STATE_ENABLED);
+                                               RSTP_ADMIN_BRIDGE_PORT_STATE_ENABLED,
+                                               true);
     rstp_port_set_oper_point_to_point_mac__(p,
                                          RSTP_OPER_P2P_MAC_STATE_ENABLED);
     rstp_port_set_path_cost__(p, RSTP_DEFAULT_PORT_PATH_COST);
@@ -1117,6 +1159,38 @@ rstp_port_set_auto_edge__(struct rstp_port *port, bool auto_edge)
                  port->port_number, auto_edge);
 
         port->auto_edge = auto_edge;
+    }
+}
+
+/* Sets the port admin_point_to_point_mac parameter. */
+static void rstp_port_set_admin_point_to_point_mac__(struct rstp_port *port,
+        enum rstp_admin_point_to_point_mac_state admin_p2p_mac_state)
+    OVS_REQUIRES(rstp_mutex)
+{
+    VLOG_DBG("%s, port %u: set RSTP port admin-point-to-point-mac to %d",
+            port->rstp->name, port->port_number, admin_p2p_mac_state);
+
+    if (admin_p2p_mac_state == RSTP_ADMIN_P2P_MAC_FORCE_TRUE) {
+        port->admin_point_to_point_mac = admin_p2p_mac_state;
+        rstp_port_set_oper_point_to_point_mac__(port,
+                RSTP_OPER_P2P_MAC_STATE_ENABLED);
+    } else if (admin_p2p_mac_state == RSTP_ADMIN_P2P_MAC_FORCE_FALSE) {
+        port->admin_point_to_point_mac = admin_p2p_mac_state;
+        rstp_port_set_oper_point_to_point_mac__(port,
+                RSTP_OPER_P2P_MAC_STATE_DISABLED);
+    } else if (admin_p2p_mac_state == RSTP_ADMIN_P2P_MAC_AUTO) {
+        /* If adminPointToPointMAC is set to Auto, then the value of
+         * operPointToPointMAC is determined in accordance with the
+         * specific procedures defined for the MAC entity concerned, as
+         * defined in 6.5. If these procedures determine that the MAC
+         * entity is connected to a point-to-point LAN, then
+         * operPointToPointMAC is set TRUE; otherwise it is set FALSE.
+         * In the absence of a specific definition of how to determine
+         * whether the MAC is connected to a point-to-point LAN or not,
+         * the value of operPointToPointMAC shall be FALSE. */
+        port->admin_point_to_point_mac = admin_p2p_mac_state;
+        rstp_port_set_oper_point_to_point_mac__(
+            port, RSTP_OPER_P2P_MAC_STATE_DISABLED);
     }
 }
 
@@ -1289,7 +1363,8 @@ rstp_port_get_status(const struct rstp_port *p, uint16_t *id,
 void
 rstp_port_set(struct rstp_port *port, uint16_t port_num, int priority,
               uint32_t path_cost, bool is_admin_edge, bool is_auto_edge,
-              bool do_mcheck, void *aux)
+              enum rstp_admin_point_to_point_mac_state admin_p2p_mac_state,
+              bool admin_port_state, bool do_mcheck, void *aux)
     OVS_EXCLUDED(rstp_mutex)
 {
     ovs_mutex_lock(&rstp_mutex);
@@ -1299,6 +1374,8 @@ rstp_port_set(struct rstp_port *port, uint16_t port_num, int priority,
     rstp_port_set_path_cost__(port, path_cost);
     rstp_port_set_admin_edge__(port, is_admin_edge);
     rstp_port_set_auto_edge__(port, is_auto_edge);
+    rstp_port_set_admin_point_to_point_mac__(port, admin_p2p_mac_state);
+    rstp_port_set_administrative_bridge_port__(port, admin_port_state, false);
     rstp_port_set_mcheck__(port, do_mcheck);
     ovs_mutex_unlock(&rstp_mutex);
 }
