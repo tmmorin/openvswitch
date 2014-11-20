@@ -579,6 +579,8 @@ recv_upcalls(struct handler *handler)
     struct upcall upcalls[UPCALL_MAX_BATCH];
     struct flow flows[UPCALL_MAX_BATCH];
     size_t n_upcalls, i;
+    
+    VLOG_WARN("recv_upcalls:start");
 
     n_upcalls = 0;
     while (n_upcalls < UPCALL_MAX_BATCH) {
@@ -591,16 +593,19 @@ recv_upcalls(struct handler *handler)
 
         ofpbuf_use_stub(recv_buf, recv_stubs[n_upcalls],
                         sizeof recv_stubs[n_upcalls]);
+    VLOG_WARN("recv_upcalls:iter 1");
         if (dpif_recv(udpif->dpif, handler->handler_id, dupcall, recv_buf)) {
             ofpbuf_uninit(recv_buf);
             break;
         }
 
+    VLOG_WARN("recv_upcalls:iter 2");
         if (odp_flow_key_to_flow(dupcall->key, dupcall->key_len, flow)
             == ODP_FIT_ERROR) {
             goto free_dupcall;
         }
 
+    VLOG_WARN("recv_upcalls:iter 3");
         error = upcall_receive(upcall, udpif->backer, &dupcall->packet,
                                dupcall->type, dupcall->userdata, flow);
         if (error) {
@@ -622,15 +627,20 @@ recv_upcalls(struct handler *handler)
 
         upcall->out_tun_key = dupcall->out_tun_key;
 
+    VLOG_WARN("recv_upcalls:iter 4");
         if (vsp_adjust_flow(upcall->ofproto, flow, &dupcall->packet)) {
             upcall->vsp_adjusted = true;
         }
 
+    VLOG_WARN("recv_upcalls:iter 5");
         md = pkt_metadata_from_flow(flow);
+    VLOG_WARN("recv_upcalls:iter 6");
         flow_extract(&dupcall->packet, &md, flow);
 
+    VLOG_WARN("recv_upcalls:iter 7");
         error = process_upcall(udpif, upcall, NULL);
         if (error) {
+            VLOG_WARN("recv_upcalls:process_upcall error");
             goto cleanup;
         }
 
@@ -638,13 +648,16 @@ recv_upcalls(struct handler *handler)
         continue;
 
 cleanup:
+    VLOG_WARN("recv_upcalls:iter 8");
         upcall_uninit(upcall);
 free_dupcall:
         ofpbuf_uninit(&dupcall->packet);
         ofpbuf_uninit(recv_buf);
     }
 
+    VLOG_WARN("recv_upcalls:iter d1");
     if (n_upcalls) {
+    VLOG_WARN("recv_upcalls:iter d2");
         handle_upcalls(handler->udpif, upcalls, n_upcalls);
         for (i = 0; i < n_upcalls; i++) {
             ofpbuf_uninit(&dupcalls[i].packet);
@@ -652,6 +665,7 @@ free_dupcall:
             upcall_uninit(&upcalls[i]);
         }
     }
+    VLOG_WARN("recv_upcalls:iter z");
 
     return n_upcalls;
 }
@@ -861,6 +875,8 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
     struct dpif_flow_stats stats;
     struct xlate_in xin;
 
+    VLOG_WARN("upcall_xlate");
+   
     stats.n_packets = 1;
     stats.n_bytes = ofpbuf_size(upcall->packet);
     stats.used = time_msec();
@@ -988,6 +1004,7 @@ process_upcall(struct udpif *udpif, struct upcall *upcall,
 
     switch (classify_upcall(upcall->type, userdata)) {
     case MISS_UPCALL:
+        VLOG_WARN("process_upcall:miss_upcalll->upcall_xlate");
         upcall_xlate(udpif, upcall, odp_actions);
         return 0;
 
@@ -1063,6 +1080,8 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
     atomic_read_relaxed(&enable_megaflows, &megaflow);
 
     may_put = udpif_get_n_flows(udpif) < flow_limit;
+
+    VLOG_WARN("handle_upcalls");
 
     /* Handle the packets individually in order of arrival.
      *

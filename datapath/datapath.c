@@ -273,6 +273,7 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 		struct dp_upcall_info upcall;
 		int error;
 
+		printk(KERN_WARNING "ovs_dp_process_packet: miss\n");
 		upcall.cmd = OVS_PACKET_CMD_MISS;
 		upcall.userdata = NULL;
 		upcall.portid = ovs_vport_find_upcall_portid(p, skb);
@@ -533,6 +534,8 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	int err;
 	bool log = !a[OVS_FLOW_ATTR_PROBE];
 
+	printk(KERN_WARNING "ovs_packet_cmd_execute:0\n");
+
 	err = -EINVAL;
 	if (!a[OVS_PACKET_ATTR_PACKET] || !a[OVS_PACKET_ATTR_KEY] ||
 	    !a[OVS_PACKET_ATTR_ACTIONS])
@@ -553,6 +556,7 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	if (IS_ERR(flow))
 		goto err_kfree_skb;
 
+	printk(KERN_WARNING "ovs_packet_cmd_execute:1\n");
 	err = ovs_flow_key_extract_userspace(a[OVS_PACKET_ATTR_KEY], packet,
 					     &flow->key, log);
 	if (err)
@@ -575,6 +579,7 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 			packet->protocol = htons(ETH_P_802_2);
 	}
 
+	printk(KERN_WARNING "ovs_packet_cmd_execute:2\n");
 	err = ovs_nla_copy_actions(a[OVS_PACKET_ATTR_ACTIONS],
 				   &flow->key, &acts, log);
 	if (err)
@@ -602,6 +607,7 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	sf_acts = rcu_dereference(flow->sf_acts);
 
 	local_bh_disable();
+	printk(KERN_WARNING "ovs_packet_cmd_execute:3\n");
 	err = ovs_execute_actions(dp, packet, sf_acts, &flow->key);
 	local_bh_enable();
 	rcu_read_unlock();

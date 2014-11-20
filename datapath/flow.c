@@ -353,7 +353,7 @@ static __be16 parse_ethertype(struct sk_buff *skb)
 	return htons(ETH_P_802_2);
 }
 
-static __be16 ethertype_from_ip_version(struct sk_buff *skb)
+/*static __be16 ethertype_from_ip_version(struct sk_buff *skb)
 {
 	struct iphdr *iphdr = ip_hdr(skb);
 
@@ -363,7 +363,7 @@ static __be16 ethertype_from_ip_version(struct sk_buff *skb)
 		return htons(ETH_P_IPV6);
 
 	return 0;
-}
+}*/
 
 static int parse_icmpv6(struct sk_buff *skb, struct sw_flow_key *key,
 			int nh_len)

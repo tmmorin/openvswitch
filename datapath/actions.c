@@ -148,7 +148,7 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 
 	skb_push(skb, MPLS_HLEN);
 	/* probably breaks !! */
-	if (!key->is_layer3) {
+	if (!key->phy.is_layer3) {
 		memmove(skb_mac_header(skb) - MPLS_HLEN, skb_mac_header(skb),
 			skb->mac_len);
 		skb_reset_mac_header(skb);
@@ -161,8 +161,10 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 		skb->csum = csum_add(skb->csum, csum_partial(new_mpls_lse,
 							     MPLS_HLEN, 0));
 	/* this is still eth specific...*/
-	hdr = eth_hdr(skb);
-	hdr->h_proto = mpls->mpls_ethertype;
+	if (!key->phy.is_layer3) {
+		hdr = eth_hdr(skb);
+		hdr->h_proto = mpls->mpls_ethertype;
+	}
 	if (!ovs_skb_get_inner_protocol(skb))
 		ovs_skb_set_inner_protocol(skb, skb->protocol);
 	skb->protocol = mpls->mpls_ethertype;
@@ -195,11 +197,11 @@ static int pop_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	skb_reset_mac_header(skb);
 
 	if (!key->phy.is_layer3) {
-		/* mac_header_end() is used to locate the ethertype
-		 * field correctly in the presence of VLAN tags.
-		 */
-		hdr = (struct ethhdr *)(mac_header_end(skb) - ETH_HLEN);
-		hdr->h_proto = ethertype;
+	       /* skb_mpls_header() is used to locate the ethertype
+		* field correctly in the presence of VLAN tags.
+		*/
+	       hdr = (struct ethhdr *)(skb_mpls_header(skb) - ETH_HLEN);
+	       hdr->h_proto = ethertype;
 	}
 	if (eth_p_mpls(skb->protocol))
 		skb->protocol = ethertype;
