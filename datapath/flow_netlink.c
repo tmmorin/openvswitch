@@ -799,10 +799,7 @@ static int ovs_key_from_nlattrs(struct sw_flow_match *match, u64 attrs,
 		const struct ovs_key_ipv4 *ipv4_key;
 
 		/* Add eth.type value for layer 3 flows */
-<<<<<<< HEAD
 		/* FIXME: not needed anymore thanks to generic tunnel ethtype things ?? */
-=======
->>>>>>> remotes/origin/l3_v8
 		if (!(attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE))) {
 			__be16 eth_type;
 
@@ -841,10 +838,7 @@ static int ovs_key_from_nlattrs(struct sw_flow_match *match, u64 attrs,
 		if (!(attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE))) {
 			__be16 eth_type;
 
-<<<<<<< HEAD
 		/* FIXME: not needed anymore thanks to generic tunnel ethtype things ??? */
-=======
->>>>>>> remotes/origin/l3_v8
 			if (is_mask) {
 				eth_type = htons(0xffff);
 			} else {
@@ -1936,7 +1930,6 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 		}
 
 		case OVS_ACTION_ATTR_POP_ETH:
-<<<<<<< HEAD
 			//printk(KERN_WARNING "__ovs_nla_copy_actions:b5\n");
 			if (is_layer3)
 				return -EINVAL;
@@ -1944,46 +1937,28 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			if (vlan_tci & htons(VLAN_TAG_PRESENT))
 				return -EINVAL;
 			//printk(KERN_WARNING "__ovs_nla_copy_actions:b5---\n");
-=======
-			if (is_layer3)
-				return -EINVAL;
-			if (vlan_tci & htons(VLAN_TAG_PRESENT))
-				return -EINVAL;
->>>>>>> remotes/origin/l3_v8
 			is_layer3 = true;
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_ETH:
-<<<<<<< HEAD
 			//printk(KERN_WARNING "__ovs_nla_copy_actions:b6\n");
-=======
->>>>>>> remotes/origin/l3_v8
 			/* For now disallow pushing an Ethernet header if one
 			 * is already present */
 			if (!is_layer3)
 				return -EINVAL;
-<<<<<<< HEAD
 			//printk(KERN_WARNING "__ovs_nla_copy_actions:b6-\n");
-=======
->>>>>>> remotes/origin/l3_v8
 			is_layer3 = false;
 			break;
 
 		case OVS_ACTION_ATTR_POP_VLAN:
-<<<<<<< HEAD
 			//printk(KERN_WARNING "__ovs_nla_copy_actions:b7\n");
-=======
->>>>>>> remotes/origin/l3_v8
 			if (is_layer3)
 				return -EINVAL;
 			vlan_tci = htons(0);
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_VLAN:
-<<<<<<< HEAD
 			//printk(KERN_WARNING "__ovs_nla_copy_actions:b8\n");
-=======
->>>>>>> remotes/origin/l3_v8
 			if (is_layer3)
 				return -EINVAL;
 			vlan = nla_data(a);
@@ -2046,10 +2021,7 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			break;
 
 		case OVS_ACTION_ATTR_SET:
-<<<<<<< HEAD
 			//printk(KERN_WARNING "__ovs_nla_copy_actions:b11\n");
-=======
->>>>>>> remotes/origin/l3_v8
 			err = validate_set(a, key, sfa, &out_tnl_port,
 					   eth_type, log, is_layer3);
 			if (err)

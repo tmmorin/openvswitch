@@ -462,6 +462,7 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
 		miniflow_push_be16(mf, dl_type, dl_type);
 		miniflow_push_be16(mf, vlan_tci, 0);
 	}
+    }
 
     nw_frag = 0;
     if (OVS_LIKELY(dl_type == htons(ETH_TYPE_IP))) {

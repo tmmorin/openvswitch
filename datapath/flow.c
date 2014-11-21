@@ -621,7 +621,7 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 
 			error = check_header(skb, skb->mac_len + stack_len);
 			if (unlikely(error))
-				return 0;
+				return 0; /* FIXME: return error ? */
 
 			memcpy(&lse, skb_network_header(skb), MPLS_HLEN);
 

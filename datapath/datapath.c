@@ -561,24 +561,6 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	if (err)
 		goto err_flow_free;
 
-	skb_reset_mac_header(packet);
-
-	if (flow->key.phy.is_layer3) {
-		skb_reset_network_header(packet);
-	} else {
-		eth = eth_hdr(packet);
-
-		/* Normally, setting the skb 'protocol' field would be handled
-		 * by a call to eth_type_trans(), but it assumes there's a
-		 * sending device, which we may not have.
-		 */
-		if (ntohs(eth->h_proto) >= ETH_P_802_3_MIN)
-			packet->protocol = eth->h_proto;
-		else
-			packet->protocol = htons(ETH_P_802_2);
-	}
-
-	printk(KERN_WARNING "ovs_packet_cmd_execute:2\n");
 	err = ovs_nla_copy_actions(a[OVS_PACKET_ATTR_ACTIONS],
 				   &flow->key, &acts, log);
 	if (err)

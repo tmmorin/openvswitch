@@ -299,9 +299,10 @@ static int gre_send(struct vport *vport, struct sk_buff *skb)
 		return -EINVAL;
 
 	/* Reject layer 3 packets */
-	if (unlikely(skb->protocol == htons(ETH_P_IP) ||
+	/* FIXME: need to relax this... */
+	/*if (unlikely(skb->protocol == htons(ETH_P_IP) ||
 	    skb->protocol == htons(ETH_P_IPV6)))
-		return -EINVAL;
+		return -EINVAL;*/
 
 	hlen = ip_gre_calc_hlen(OVS_CB(skb)->egress_tun_info->tunnel.tun_flags);
 
