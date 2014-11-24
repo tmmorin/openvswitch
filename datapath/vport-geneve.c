@@ -369,8 +369,7 @@ static int geneve_send(struct vport *vport, struct sk_buff *skb)
 		return -EINVAL;
 
 	/* Reject layer 3 packets */
-	if (unlikely(skb->protocol == htons(ETH_P_IP) ||
-	    skb->protocol == htons(ETH_P_IPV6)))
+	if (unlikely(skb->mac_len == 0))
 		return -EINVAL;
 
 	tun_key = &OVS_CB(skb)->egress_tun_info->tunnel;

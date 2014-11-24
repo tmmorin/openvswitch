@@ -140,8 +140,12 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	struct ethhdr *hdr;
 
 	/* Networking stack do not allow simultaneous Tunnel and MPLS GSO. */
-	if (skb_encapsulation(skb))
+	printk(KERN_WARNING "skb_encapsulation: %d\n",skb_encapsulation(skb));
+
+	if (skb_encapsulation(skb)) {
+		printk(KERN_WARNING "skb_encapsulation non zero, rejecting\n");
 		return -ENOTSUPP;
+	}
 
 	if (skb_cow_head(skb, MPLS_HLEN) < 0)
 		return -ENOMEM;
