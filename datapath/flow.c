@@ -461,7 +461,7 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 
 	/* Link layer. */
 	if (key->phy.is_layer3) {
-		skb_reset_network_header(skb);  /* maybe not correct for MPLS */  /* remove in lori ... v8 */
+		//skb_reset_network_header(skb);  /* maybe not correct for MPLS */  /* remove in lori ... v8 */
 
 		key->eth.tci = 0;
 	} else {
@@ -684,6 +684,8 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 
 int ovs_flow_key_update(struct sk_buff *skb, struct sw_flow_key *key)
 {
+	key->eth.type = skb->protocol;
+
 	return key_extract(skb, key);
 }
 
@@ -716,6 +718,9 @@ int ovs_flow_key_extract(const struct ovs_tunnel_info *tun_info,
 	key->phy.is_layer3 = is_layer3;
 	key->ovs_flow_hash = 0;
 	key->recirc_id = 0;
+
+	if (is_layer3)
+		key->eth.type = skb->protocol;
 
 	return key_extract(skb, key);
 }

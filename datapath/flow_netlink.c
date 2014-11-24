@@ -839,11 +839,10 @@ static int ovs_key_from_nlattrs(struct sw_flow_match *match, u64 attrs,
 			__be16 eth_type;
 
 		/* FIXME: not needed anymore thanks to generic tunnel ethtype things ??? */
-			if (is_mask) {
+			if (is_mask)
 				eth_type = htons(0xffff);
-			} else {
+			else
 				eth_type = htons(ETH_P_IPV6);
-			}
 			SW_FLOW_KEY_PUT(match, eth.type, eth_type, is_mask);
 		}
 

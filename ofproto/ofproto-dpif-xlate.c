@@ -2661,8 +2661,11 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
         if (!in_xport->is_layer3 && xport->is_layer3) {
             odp_put_pop_eth_action(ctx->xout->odp_actions);
         } else if (in_xport && in_xport->is_layer3 && !xport->is_layer3) {
-            odp_put_push_eth_action(ctx->xout->odp_actions, flow->dl_src,
-                                    flow->dl_dst, flow->dl_type);
+            const uint8_t eth_addr_zeroes[ETH_ADDR_LEN]
+                = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+            odp_put_push_eth_action(ctx->xout->odp_actions, eth_addr_zeroes,
+                                    eth_addr_zeroes, flow->dl_type);
         }
     }
 

@@ -20,7 +20,6 @@
  * OVS_USE_NL_INTERFACE = 0 => legacy inteface to use with dpif-windows.c
  * OVS_USE_NL_INTERFACE = 1 => netlink inteface to use with ported dpif-linux.c
  */
-#if defined OVS_USE_NL_INTERFACE && OVS_USE_NL_INTERFACE == 1
 
 #include "precomp.h"
 #include "Switch.h"
@@ -706,7 +705,7 @@ OvsDeviceControl(PDEVICE_OBJECT deviceObject,
      */
     switch (code) {
     case OVS_IOCTL_TRANSACT:
-        /* Input buffer is mandatory, output buffer is optional. */
+        /* Both input buffer and output buffer are mandatory. */
         if (outputBufferLen != 0) {
             status = MapIrpOutputBuffer(irp, outputBufferLen,
                                         sizeof *ovsMsg, &outputBuffer);
@@ -714,6 +713,9 @@ OvsDeviceControl(PDEVICE_OBJECT deviceObject,
                 goto done;
             }
             ASSERT(outputBuffer);
+        } else {
+            status = STATUS_NDIS_INVALID_LENGTH;
+            goto done;
         }
 
         if (inputBufferLen < sizeof (*ovsMsg)) {
@@ -727,7 +729,10 @@ OvsDeviceControl(PDEVICE_OBJECT deviceObject,
 
     case OVS_IOCTL_READ_EVENT:
     case OVS_IOCTL_READ_PACKET:
-        /* This IOCTL is used to read events */
+        /*
+         * Output buffer is mandatory. These IOCTLs are used to read events and
+         * packets respectively. It is convenient to have separate ioctls.
+         */
         if (outputBufferLen != 0) {
             status = MapIrpOutputBuffer(irp, outputBufferLen,
                                         sizeof *ovsMsg, &outputBuffer);
@@ -859,6 +864,11 @@ OvsDeviceControl(PDEVICE_OBJECT deviceObject,
 done:
     KeMemoryBarrier();
     instance->inUse = 0;
+
+    /* Should not complete a pending IRP unless proceesing is completed */
+    if (status == STATUS_PENDING) {
+        return status;
+    }
     return OvsCompleteIrpRequest(irp, (ULONG_PTR)replyLen, status);
 }
 
@@ -1181,6 +1191,7 @@ HandleGetDpDump(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
 
         /* Dump state must have been deleted after previous dump operation. */
         ASSERT(instance->dumpState.index[0] == 0);
+
         /* Output buffer has been validated while validating read dev op. */
         ASSERT(msgOut != NULL && usrParamsCtx->outputLength >= sizeof *msgOut);
 
@@ -1269,10 +1280,9 @@ HandleDpTransactionCommon(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         RtlZeroMemory(dpAttrs, sizeof dpAttrs);
     }
 
-    /* Output buffer is optional for OVS_TRANSACTION_DEV_OP. */
-    if (msgOut == NULL || usrParamsCtx->outputLength < sizeof *msgOut) {
-        return STATUS_NDIS_INVALID_LENGTH;
-    }
+    /* Output buffer has been validated while validating transact dev op. */
+    ASSERT(msgOut != NULL && usrParamsCtx->outputLength >= sizeof *msgOut);
+
     NlBufInit(&nlBuf, usrParamsCtx->outputBuffer, usrParamsCtx->outputLength);
 
     OvsAcquireCtrlLock();
@@ -1614,9 +1624,8 @@ OvsGetVport(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         return STATUS_INVALID_PARAMETER;
     }
 
-    if (msgOut == NULL || usrParamsCtx->outputLength < sizeof *msgOut) {
-        return STATUS_INVALID_BUFFER_SIZE;
-    }
+    /* Output buffer has been validated while validating transact dev op. */
+    ASSERT(msgOut != NULL && usrParamsCtx->outputLength >= sizeof *msgOut);
 
     NdisAcquireRWLockRead(gOvsSwitchContext->dispatchLock, &lockState, 0);
     if (vportAttrs[OVS_VPORT_ATTR_NAME] != NULL) {
@@ -1729,7 +1738,7 @@ OvsNewVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     ULONG portNameLen;
     UINT32 portType;
     BOOLEAN isBridgeInternal = FALSE;
-    BOOLEAN vportAllocated = FALSE;
+    BOOLEAN vportAllocated = FALSE, vportInitialized = FALSE;
     BOOLEAN addInternalPortAsNetdev = FALSE;
 
     static const NL_POLICY ovsVportPolicy[] = {
@@ -1747,9 +1756,8 @@ OvsNewVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
     /* input buffer has been validated while validating write dev op. */
     ASSERT(usrParamsCtx->inputBuffer != NULL);
 
-    if (msgOut == NULL || usrParamsCtx->outputLength < sizeof *msgOut) {
-        return STATUS_INVALID_BUFFER_SIZE;
-    }
+    /* Output buffer has been validated while validating transact dev op. */
+    ASSERT(msgOut != NULL && usrParamsCtx->outputLength >= sizeof *msgOut);
 
     if (!NlAttrParse((PNL_MSG_HDR)msgIn,
         NLMSG_HDRLEN + GENL_HDRLEN + OVS_HDRLEN,
@@ -1787,7 +1795,7 @@ OvsNewVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         vport = gOvsSwitchContext->internalVport;
     } else if (portType == OVS_VPORT_TYPE_NETDEV) {
         /* External ports can also be looked up like VIF ports. */
-        vport = OvsFindVportByHvName(gOvsSwitchContext, portName);
+        vport = OvsFindVportByHvNameA(gOvsSwitchContext, portName);
     } else {
         ASSERT(OvsIsTunnelVportType(portType) ||
                (portType == OVS_VPORT_TYPE_INTERNAL && isBridgeInternal));
@@ -1802,10 +1810,12 @@ OvsNewVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         vportAllocated = TRUE;
 
         if (OvsIsTunnelVportType(portType)) {
-            nlError = OvsInitTunnelVport(vport, portType, VXLAN_UDP_PORT);
+            status = OvsInitTunnelVport(vport, portType, VXLAN_UDP_PORT);
+            nlError = NlMapStatusToNlErr(status);
         } else {
             OvsInitBridgeInternalVport(vport);
         }
+        vportInitialized = TRUE;
 
         if (nlError == NL_ERROR_SUCCESS) {
             vport->ovsState = OVS_STATE_CONNECTED;
@@ -1815,7 +1825,7 @@ OvsNewVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
              * Allow the vport to be deleted, because there is no
              * corresponding hyper-v switch part.
              */
-            vport->hvDeleted = TRUE;
+            vport->isPresentOnHv = TRUE;
         }
     }
 
@@ -1880,7 +1890,12 @@ Cleanup:
             usrParamsCtx->outputBuffer;
 
         if (vport && vportAllocated == TRUE) {
-            OvsRemoveAndDeleteVport(gOvsSwitchContext, vport);
+            if (vportInitialized == TRUE) {
+                if (OvsIsTunnelVportType(portType)) {
+                    OvsCleanupVxlanTunnel(vport);
+                }
+            }
+            OvsFreeMemory(vport);
         }
 
         BuildErrorMsg(msgIn, msgError, nlError);
@@ -1932,9 +1947,8 @@ OvsSetVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         return STATUS_INVALID_PARAMETER;
     }
 
-    if (msgOut == NULL || usrParamsCtx->outputLength < sizeof *msgOut) {
-        return STATUS_NDIS_INVALID_LENGTH;
-    }
+    /* Output buffer has been validated while validating transact dev op. */
+    ASSERT(msgOut != NULL && usrParamsCtx->outputLength >= sizeof *msgOut);
 
     OvsAcquireCtrlLock();
 
@@ -2038,9 +2052,8 @@ OvsDeleteVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
         return STATUS_INVALID_PARAMETER;
     }
 
-    if (msgOut == NULL || usrParamsCtx->outputLength < sizeof *msgOut) {
-        return STATUS_NDIS_INVALID_LENGTH;
-    }
+    /* Output buffer has been validated while validating transact dev op. */
+    ASSERT(msgOut != NULL && usrParamsCtx->outputLength >= sizeof *msgOut);
 
     NdisAcquireRWLockWrite(gOvsSwitchContext->dispatchLock, &lockState, 0);
     if (vportAttrs[OVS_VPORT_ATTR_NAME] != NULL) {
@@ -2066,29 +2079,11 @@ OvsDeleteVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
                                    usrParamsCtx->outputLength,
                                    gOvsSwitchContext->dpNo);
 
-    if (vport->hvDeleted || OvsIsTunnelVportType(vport->ovsType)) {
-        /*
-         * The associated hyper-v switch port is not in created state, or,
-         * there is no hyper-v switch port counterpart (for logical ports).
-         * This means that this datapath port is not mapped to a living
-         * hyper-v switc hport. We can destroy and remove the vport from the
-         * list.
-        */
-        OvsRemoveAndDeleteVport(gOvsSwitchContext, vport);
-    } else {
-        /* The associated hyper-v switch port is in the created state, and the
-         * datapath port is mapped to a living hyper-v switch port. We cannot
-         * destroy the vport and cannot remove it from the list of vports.
-         * Instead, we mark the datapath (ovs) part of the vport as
-         * "not created", i.e. we set vport->portNo = OVS_PORT_NUMBER_INVALID.
-        */
-        RemoveEntryList(&vport->ovsNameLink);
-        InitializeListHead(&vport->ovsNameLink);
-        RemoveEntryList(&vport->portNoLink);
-        InitializeListHead(&vport->portNoLink);
-        vport->portNo = OVS_DPPORT_NUMBER_INVALID;
-        vport->ovsName[0] = '\0';
-    }
+    /*
+     * Mark the port as deleted from OVS userspace. If the port does not exist
+     * on the Hyper-V switch, it gets deallocated. Otherwise, it stays.
+     */
+    OvsRemoveAndDeleteVport(gOvsSwitchContext, vport, FALSE, TRUE, NULL);
 
     *replyLen = msgOut->nlMsg.nlmsgLen;
 
@@ -2375,5 +2370,3 @@ OvsPendPacketCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
      */
     return OvsWaitDpIoctl(usrParamsCtx->irp, instance->fileObject);
 }
-
-#endif /* OVS_USE_NL_INTERFACE */
