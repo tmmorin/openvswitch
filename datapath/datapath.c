@@ -287,8 +287,10 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 		goto out;
 	}
 
+	printk(KERN_WARNING "ovs_dp_process_packet: ovs_flow_stats_update\n");
 	ovs_flow_stats_update(flow, key->tp.flags, skb);
 	sf_acts = rcu_dereference(flow->sf_acts);
+	printk(KERN_WARNING "ovs_dp_process_packet: ovs_execute_actions\n");
 	ovs_execute_actions(dp, skb, sf_acts, key);
 
 	stats_counter = &stats->n_hit;
@@ -571,6 +573,8 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	packet->priority = flow->key.phy.priority;
 	packet->mark = flow->key.phy.skb_mark;
 	packet->protocol = flow->key.eth.type;
+	printk(KERN_WARNING "ovs_packet_cmd_execute: packet->protocol: %d\n",packet->protocol);
+	printk(KERN_WARNING "ovs_packet_cmd_execute: packet->mac_len: %d\n",packet->mac_len);
 
 	rcu_read_lock();
 	dp = get_dp_rcu(sock_net(skb->sk), ovs_header->dp_ifindex);

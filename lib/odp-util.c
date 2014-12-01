@@ -3358,7 +3358,13 @@ parse_l2_5_onward(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
     size_t check_len = 0;
     enum ovs_key_attr expected_bit = 0xff;
 
+
+    // FIXME here the hypothesis is made that ethype is in flow->dl_type
+    //   and look there for MPLS...
+
+    VLOG_WARN("parse_l2_5_onward: dl_type is %x",src_flow->dl_type);
     if (eth_type_mpls(src_flow->dl_type)) {
+	VLOG_WARN("parse_l2_5_onward: dl_type is MPLS");
         if (!is_mask || present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_MPLS)) {
             expected_attrs |= (UINT64_C(1) << OVS_KEY_ATTR_MPLS);
         }
@@ -3457,6 +3463,7 @@ parse_l2_5_onward(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
             }
         }
     } else {
+        VLOG_WARN("parse_l2_5_onward: dl_type is %x, 'goto done'",src_flow->dl_type);
         goto done;
     }
     if (check_len > 0) { /* Happens only when 'is_mask'. */
@@ -3723,11 +3730,14 @@ odp_flow_key_to_flow__(const struct nlattr *key, size_t key_len,
     if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_ETHERNET)) {
         const struct ovs_key_ethernet *eth_key;
 
+	VLOG_WARN("odp_flow_key_to_flow__: OVS_KEY_ATTR_ETHERNET present");
+
         eth_key = nl_attr_get(attrs[OVS_KEY_ATTR_ETHERNET]);
         put_ethernet_key(eth_key, flow);
         flow->base_layer = LAYER_2;
         expected_attrs |= UINT64_C(1) << OVS_KEY_ATTR_ETHERNET;
     } else {
+	VLOG_WARN("odp_flow_key_to_flow__: OVS_KEY_ATTR_ETHERNET not present");
         flow->base_layer = LAYER_3;
     }
 

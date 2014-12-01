@@ -452,6 +452,7 @@ void ovs_vport_receive(struct vport *vport, struct sk_buff *skb,
 	struct sw_flow_key key;
 	int error;
 
+	printk(KERN_WARNING "ovs_vport_receive, start\n");
 	stats = this_cpu_ptr(vport->percpu_stats);
 	u64_stats_update_begin(&stats->syncp);
 	stats->rx_packets++;
@@ -463,9 +464,11 @@ void ovs_vport_receive(struct vport *vport, struct sk_buff *skb,
 	OVS_CB(skb)->egress_tun_info = NULL;
 	error = ovs_flow_key_extract(tun_info, skb, &key, is_layer3);
 	if (unlikely(error)) {
+		printk(KERN_WARNING "ovs_vport_receive, ovs_flow_key_extract error\n");
 		kfree_skb(skb);
 		return;
 	}
+	printk(KERN_WARNING "ovs_vport_receive, before ovs_dp_process_packet\n");
 
 	ovs_dp_process_packet(skb, &key);
 }

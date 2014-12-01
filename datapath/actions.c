@@ -133,11 +133,39 @@ static int make_writable(struct sk_buff *skb, int write_len)
 	return pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
 }
 
+static void printk_skb(struct sk_buff *skb) {
+	int i;
+	printk(KERN_WARNING "skbdump: ");
+	for (i=0; i<4; i++) {
+		printk(KERN_WARNING "... %02x %02x %02x %02x %02x %02x %02x %02x  %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                        skb->data[16*i],
+			skb->data[16*i+1],
+			skb->data[16*i+2],
+			skb->data[16*i+3],
+			skb->data[16*i+4],
+			skb->data[16*i+5],
+			skb->data[16*i+7],
+			skb->data[16*i+8],
+			skb->data[16*i+9],
+			skb->data[16*i+10],
+			skb->data[16*i+11],
+			skb->data[16*i+12],
+			skb->data[16*i+13],
+			skb->data[16*i+14],
+			skb->data[16*i+15]
+		);
+	}
+	printk(KERN_WARNING "\n");
+}
+
+
 static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 		     const struct ovs_action_push_mpls *mpls)
 {
 	__be32 *new_mpls_lse;
 	struct ethhdr *hdr;
+
+	printk_skb(skb);
 
 	/* Networking stack do not allow simultaneous Tunnel and MPLS GSO. */
 	printk(KERN_WARNING "skb_encapsulation: %d\n",skb_encapsulation(skb));
@@ -161,16 +189,24 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	new_mpls_lse = (__be32 *)skb_mpls_header(skb);
 	*new_mpls_lse = mpls->mpls_lse;
 
+	printk_skb(skb);
+
 	if (skb->ip_summed == CHECKSUM_COMPLETE)
 		skb->csum = csum_add(skb->csum, csum_partial(new_mpls_lse,
 							     MPLS_HLEN, 0));
+	printk_skb(skb);
 	/* this is still eth specific...*/
-	if (!key->phy.is_layer3) {
+	if (skb->mac_len) {
+		printk(KERN_WARNING "setting eth protocol\n");
 		hdr = eth_hdr(skb);
 		hdr->h_proto = mpls->mpls_ethertype;
 	}
-	if (!ovs_skb_get_inner_protocol(skb))
+	printk_skb(skb);
+	if (!ovs_skb_get_inner_protocol(skb)) {
+		printk(KERN_WARNING "calling ovs_skb_set_inner_protocol\n");
 		ovs_skb_set_inner_protocol(skb, skb->protocol);
+	}
+	printk_skb(skb);
 	skb->protocol = mpls->mpls_ethertype;
 
 	invalidate_flow_key(key);
@@ -918,6 +954,7 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 
 			prev_port = -1;
 		}
+		printk(KERN_WARNING "do_execute_actions: nla_type:%d\n",nla_type(a));
 
 		switch (nla_type(a)) {
 		case OVS_ACTION_ATTR_OUTPUT:
@@ -933,10 +970,12 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_MPLS:
+			printk(KERN_WARNING "do_execute_actions: push_mpls\n");
 			err = push_mpls(skb, key, nla_data(a));
 			break;
 
 		case OVS_ACTION_ATTR_POP_MPLS:
+			printk(KERN_WARNING "do_execute_actions: pop_mpls\n");
 			err = pop_mpls(skb, key, nla_get_be16(a));
 			break;
 
@@ -951,10 +990,12 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_ETH:
+			printk(KERN_WARNING "do_execute_actions: push_eth\n");
 			err = push_eth(skb, key, nla_data(a));
 			break;
 
 		case OVS_ACTION_ATTR_POP_ETH:
+			printk(KERN_WARNING "do_execute_actions: pop_eth\n");
 			err = pop_eth(skb, key);
 			break;
 
@@ -979,6 +1020,8 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 		}
 
 		if (unlikely(err)) {
+			printk(KERN_WARNING "do_execute_actions: err:%d\n",err);
+			
 			kfree_skb(skb);
 			return err;
 		}
@@ -1026,6 +1069,8 @@ int ovs_execute_actions(struct datapath *dp, struct sk_buff *skb,
 	int level = this_cpu_read(exec_actions_level);
 	int err;
 
+	printk(KERN_WARNING "ovs_execute_actions\n");
+
 	if (unlikely(level >= EXEC_ACTIONS_LEVEL_LIMIT)) {
 		if (net_ratelimit())
 			pr_warn("%s: packet loop detected, dropping.\n",
@@ -1036,9 +1081,11 @@ int ovs_execute_actions(struct datapath *dp, struct sk_buff *skb,
 	}
 
 	this_cpu_inc(exec_actions_level);
+	printk(KERN_WARNING "ovs_execute_actions: do_execute_actions\n");
 	err = do_execute_actions(dp, skb, key,
 				 acts->actions, acts->actions_len);
 
+	printk(KERN_WARNING "ovs_execute_actions: do_execute_actions, err=%d\n",err);
 	if (!level)
 		process_deferred_actions(dp);
 

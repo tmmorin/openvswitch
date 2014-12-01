@@ -76,10 +76,13 @@ static struct sk_buff *__build_header(struct sk_buff *skb,
 
 	tpi.flags = filter_tnl_flags(tun_key->tun_flags) | gre64_flag;
 
-	if (skb->mac_header == skb->network_header) {
-		tpi.proto = skb->protocol;
-        } else {
+
+	if (skb->mac_len) {
+		printk(KERN_WARNING "vport-gre,__build_header: not l3...)\n");
 		tpi.proto = htons(ETH_P_TEB);
+        } else {
+		printk(KERN_WARNING "vport-gre,__build_header: is l3... copy skb->protocol into tpi.proto (%d)\n", skb->protocol);
+		tpi.proto = skb->protocol;
 	}
 
 	tpi.key = be64_get_low32(tun_key->tun_id);
@@ -120,6 +123,8 @@ static int gre_rcv(struct sk_buff *skb,
 			       filter_tnl_flags(tpi->flags), NULL, 0);
 
 	skb->protocol = tpi->proto;
+
+	printk(KERN_WARNING "gre_rcv (tpi.proto:%d)\n", tpi->proto);
 
 	ovs_vport_receive(vport, skb, &tun_info, 
 		(tpi->proto != htons(ETH_P_TEB)));

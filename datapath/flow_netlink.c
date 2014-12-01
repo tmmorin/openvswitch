@@ -1339,7 +1339,8 @@ noethernet:
 		ether_addr_copy(arp_key->arp_tha, output->ipv4.arp.tha);
 	} else if (eth_p_mpls(swkey->eth.type)) {
 		struct ovs_key_mpls *mpls_key;
-
+	
+		printk(KERN_WARNING "ovs_nla_put_flow: add OVS_KEY_ATTR_MPLS (because swkey->eth.type is MPLS)");
 		nla = nla_reserve(skb, OVS_KEY_ATTR_MPLS, sizeof(*mpls_key));
 		if (!nla)
 			goto nla_put_failure;
@@ -1890,26 +1891,26 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 		     action_lens[type] != (u32)-1))
 			return -EINVAL;
 		
-		//printk(KERN_WARNING "__ovs_nla_copy_actions:a\n");
+		printk(KERN_WARNING "__ovs_nla_copy_actions:a\n");
 
 		skip_copy = false;
 		switch (type) {
 		case OVS_ACTION_ATTR_UNSPEC:
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b1\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b1\n");
 			return -EINVAL;
 
 		case OVS_ACTION_ATTR_USERSPACE:
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b2\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b2\n");
 			err = validate_userspace(a);
 			if (err)
 				return err;
 			break;
 
 		case OVS_ACTION_ATTR_OUTPUT:
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b3\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b3\n");
 			if (nla_get_u32(a) >= DP_MAX_PORTS)
 				return -EINVAL;
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b3-\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b3-\n");
 			out_tnl_port = false;
 
 			break;
@@ -1917,7 +1918,7 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 		case OVS_ACTION_ATTR_HASH: {
 			const struct ovs_action_hash *act_hash = nla_data(a);
 
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b4\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b4\n");
 			switch (act_hash->hash_alg) {
 			case OVS_HASH_ALG_L4:
 				break;
@@ -1929,35 +1930,35 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 		}
 
 		case OVS_ACTION_ATTR_POP_ETH:
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b5\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b5\n");
 			if (is_layer3)
 				return -EINVAL;
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b5--\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b5--\n");
 			if (vlan_tci & htons(VLAN_TAG_PRESENT))
 				return -EINVAL;
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b5---\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b5---\n");
 			is_layer3 = true;
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_ETH:
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b6\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b6\n");
 			/* For now disallow pushing an Ethernet header if one
 			 * is already present */
 			if (!is_layer3)
 				return -EINVAL;
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b6-\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b6-\n");
 			is_layer3 = false;
 			break;
 
 		case OVS_ACTION_ATTR_POP_VLAN:
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b7\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b7\n");
 			if (is_layer3)
 				return -EINVAL;
 			vlan_tci = htons(0);
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_VLAN:
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b8\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b8\n");
 			if (is_layer3)
 				return -EINVAL;
 			vlan = nla_data(a);
@@ -1974,20 +1975,22 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 		case OVS_ACTION_ATTR_PUSH_MPLS: {
 			const struct ovs_action_push_mpls *mpls = nla_data(a);
 
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b9\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b9\n");
 			/* Networking stack do not allow simultaneous Tunnel
 			 * and MPLS GSO.
 			 */
-			if (out_tnl_port)
-				return -EINVAL;
+		if (out_tnl_port) {
+			printk(KERN_WARNING "__ovs_nla_copy_actions: Networking stack do not allow simultaneous Tunnel and MPLS GSO\n");
+				//return -EINVAL;
+}
 
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b9-\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b9-\n");
 			if (!eth_p_mpls(mpls->mpls_ethertype))
 				return -EINVAL;
 			/* Prohibit push MPLS other than to a white list
 			 * for packets that have a known tag order.
 			 */
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b9--\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b9--\n");
 			if (vlan_tci & htons(VLAN_TAG_PRESENT) ||
 			    (eth_type != htons(ETH_P_IP) &&
 			     eth_type != htons(ETH_P_IPV6) &&
@@ -1995,18 +1998,18 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			     eth_type != htons(ETH_P_RARP) &&
 			     !eth_p_mpls(eth_type)))
 				return -EINVAL;
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b9---\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b9---\n");
 			eth_type = mpls->mpls_ethertype;
 			break;
 		}
 
 		case OVS_ACTION_ATTR_POP_MPLS:
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b10\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b10\n");
 			if (vlan_tci & htons(VLAN_TAG_PRESENT) ||
 			    !eth_p_mpls(eth_type))
 				return -EINVAL;
 
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b10-\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b10-\n");
 			/* Disallow subsequent L2.5+ set and mpls_pop actions
 			 * as there is no check here to ensure that the new
 			 * eth_type is valid and thus set actions could
@@ -2020,13 +2023,13 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			break;
 
 		case OVS_ACTION_ATTR_SET:
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b11\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b11\n");
 			err = validate_set(a, key, sfa, &out_tnl_port,
 					   eth_type, log, is_layer3);
 			if (err)
 				return err;
 
-			//printk(KERN_WARNING "__ovs_nla_copy_actions:b11-\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b11-\n");
 			skip_copy = out_tnl_port;
 			break;
 
@@ -2043,20 +2046,20 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			return -EINVAL;
 		}
 		if (!skip_copy) {
-			//printk(KERN_WARNING "pre copy\n");
+			printk(KERN_WARNING "pre copy\n");
 			err = copy_action(a, sfa, log);
 			if (err)
 				return err;
-			//printk(KERN_WARNING "after copy\n");
+			printk(KERN_WARNING "after copy\n");
 		}
-		//printk(KERN_WARNING "__ovs_nla_copy_actions:iter end\n");
+		printk(KERN_WARNING "__ovs_nla_copy_actions:iter end\n");
 	}
 
-	//printk(KERN_WARNING "__ovs_nla_copy_actions:prez\n");
+	printk(KERN_WARNING "__ovs_nla_copy_actions:prez\n");
 	if (rem > 0)
 		return -EINVAL;
 
-	//printk(KERN_WARNING "__ovs_nla_copy_actions:z\n");
+	printk(KERN_WARNING "__ovs_nla_copy_actions:z\n");
 	return 0;
 }
 
