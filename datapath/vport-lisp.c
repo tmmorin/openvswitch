@@ -447,9 +447,9 @@ static int lisp_send(struct vport *vport, struct sk_buff *skb)
 	if (unlikely(!OVS_CB(skb)->egress_tun_info))
 		return -EINVAL;
 
-	if (unlikely((skb->protocol != htons(ETH_P_IP) &&
-	    skb->protocol != htons(ETH_P_IPV6)) ||
-	    vlan_tx_tag_present(skb)))
+	/* LISP only encapsulates IPv4 and IPv6 packets */
+	if (unlikely(skb->protocol != htons(ETH_P_IP) &&
+	    skb->protocol != htons(ETH_P_IPV6)))
 		return -EINVAL;
 
 	/* Route lookup */
