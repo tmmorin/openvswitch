@@ -91,6 +91,7 @@ static void log_flow_message(const struct dpif *dpif, int error,
                              const char *operation,
                              const struct nlattr *key, size_t key_len,
                              const struct nlattr *mask, size_t mask_len,
+                             const ovs_u128 *ufid,
                              const struct dpif_flow_stats *stats,
                              const struct nlattr *actions, size_t actions_len);
 static void log_operation(const struct dpif *, const char *operation,
@@ -120,7 +121,7 @@ dp_initialize(void)
         dpctl_unixctl_register();
         tnl_port_map_init();
         tnl_arp_cache_init();
-        route_table_register();
+        route_table_init();
 
         for (i = 0; i < ARRAY_SIZE(base_dpif_classes); i++) {
             dp_register_provider(base_dpif_classes[i]);
@@ -225,15 +226,14 @@ dp_blacklist_provider(const char *type)
     ovs_mutex_unlock(&dpif_mutex);
 }
 
-/* Clears 'types' and enumerates the types of all currently registered datapath
- * providers into it.  The caller must first initialize the sset. */
+/* Adds the types of all currently registered datapath providers to 'types'.
+ * The caller must first initialize the sset. */
 void
 dp_enumerate_types(struct sset *types)
 {
     struct shash_node *node;
 
     dp_initialize();
-    sset_clear(types);
 
     ovs_mutex_lock(&dpif_mutex);
     SHASH_FOR_EACH(node, &dpif_classes) {
@@ -860,10 +860,24 @@ dpif_flow_flush(struct dpif *dpif)
     return error;
 }
 
+/* Tests whether 'dpif' supports userspace flow ids. We can skip serializing
+ * some flow attributes for datapaths that support this feature.
+ *
+ * Returns true if 'dpif' supports UFID for flow operations.
+ * Returns false if  'dpif' does not support UFID. */
+bool
+dpif_get_enable_ufid(struct dpif *dpif)
+{
+    if (dpif->dpif_class->get_ufid_support) {
+        return dpif->dpif_class->get_ufid_support(dpif);
+    }
+    return false;
+}
+
 /* A dpif_operate() wrapper for performing a single DPIF_OP_FLOW_GET. */
 int
 dpif_flow_get(struct dpif *dpif,
-              const struct nlattr *key, size_t key_len,
+              const struct nlattr *key, size_t key_len, const ovs_u128 *ufid,
               struct ofpbuf *buf, struct dpif_flow *flow)
 {
     struct dpif_op *opp;
@@ -872,10 +886,14 @@ dpif_flow_get(struct dpif *dpif,
     op.type = DPIF_OP_FLOW_GET;
     op.u.flow_get.key = key;
     op.u.flow_get.key_len = key_len;
+    op.u.flow_get.ufid = ufid;
     op.u.flow_get.buffer = buf;
+
+    memset(flow, 0, sizeof *flow);
     op.u.flow_get.flow = flow;
     op.u.flow_get.flow->key = key;
     op.u.flow_get.flow->key_len = key_len;
+    op.u.flow_get.flow->ufid = *ufid;
 
     opp = &op;
     dpif_operate(dpif, &opp, 1);
@@ -889,7 +907,7 @@ dpif_flow_put(struct dpif *dpif, enum dpif_flow_put_flags flags,
               const struct nlattr *key, size_t key_len,
               const struct nlattr *mask, size_t mask_len,
               const struct nlattr *actions, size_t actions_len,
-              struct dpif_flow_stats *stats)
+              const ovs_u128 *ufid, struct dpif_flow_stats *stats)
 {
     struct dpif_op *opp;
     struct dpif_op op;
@@ -902,6 +920,7 @@ dpif_flow_put(struct dpif *dpif, enum dpif_flow_put_flags flags,
     op.u.flow_put.mask_len = mask_len;
     op.u.flow_put.actions = actions;
     op.u.flow_put.actions_len = actions_len;
+    op.u.flow_put.ufid = ufid;
     op.u.flow_put.stats = stats;
 
     opp = &op;
@@ -913,7 +932,7 @@ dpif_flow_put(struct dpif *dpif, enum dpif_flow_put_flags flags,
 /* A dpif_operate() wrapper for performing a single DPIF_OP_FLOW_DEL. */
 int
 dpif_flow_del(struct dpif *dpif,
-              const struct nlattr *key, size_t key_len,
+              const struct nlattr *key, size_t key_len, const ovs_u128 *ufid,
               struct dpif_flow_stats *stats)
 {
     struct dpif_op *opp;
@@ -922,6 +941,7 @@ dpif_flow_del(struct dpif *dpif,
     op.type = DPIF_OP_FLOW_DEL;
     op.u.flow_del.key = key;
     op.u.flow_del.key_len = key_len;
+    op.u.flow_del.ufid = ufid;
     op.u.flow_del.stats = stats;
 
     opp = &op;
@@ -931,14 +951,15 @@ dpif_flow_del(struct dpif *dpif,
 }
 
 /* Creates and returns a new 'struct dpif_flow_dump' for iterating through the
- * flows in 'dpif'.
+ * flows in 'dpif'. If 'terse' is true, then only UFID and statistics will
+ * be returned in the dump. Otherwise, all fields will be returned.
  *
  * This function always successfully returns a dpif_flow_dump.  Error
  * reporting is deferred to dpif_flow_dump_destroy(). */
 struct dpif_flow_dump *
-dpif_flow_dump_create(const struct dpif *dpif)
+dpif_flow_dump_create(const struct dpif *dpif, bool terse)
 {
-    return dpif->dpif_class->flow_dump_create(dpif);
+    return dpif->dpif_class->flow_dump_create(dpif, terse);
 }
 
 /* Destroys 'dump', which must have been created with dpif_flow_dump_create().
@@ -1003,7 +1024,7 @@ dpif_flow_dump_next(struct dpif_flow_dump_thread *thread,
         for (f = flows; f < &flows[n] && should_log_flow_message(0); f++) {
             log_flow_message(dpif, 0, "flow_dump",
                              f->key, f->key_len, f->mask, f->mask_len,
-                             &f->stats, f->actions, f->actions_len);
+                             &f->ufid, &f->stats, f->actions, f->actions_len);
         }
     } else {
         VLOG_DBG_RL(&dpmsg_rl, "%s: dumped all flows", dpif_name(dpif));
@@ -1526,7 +1547,7 @@ static void
 log_flow_message(const struct dpif *dpif, int error, const char *operation,
                  const struct nlattr *key, size_t key_len,
                  const struct nlattr *mask, size_t mask_len,
-                 const struct dpif_flow_stats *stats,
+                 const ovs_u128 *ufid, const struct dpif_flow_stats *stats,
                  const struct nlattr *actions, size_t actions_len)
 {
     struct ds ds = DS_EMPTY_INITIALIZER;
@@ -1537,6 +1558,10 @@ log_flow_message(const struct dpif *dpif, int error, const char *operation,
     ds_put_format(&ds, "%s ", operation);
     if (error) {
         ds_put_format(&ds, "(%s) ", ovs_strerror(error));
+    }
+    if (ufid) {
+        odp_format_ufid(ufid, &ds);
+        ds_put_cstr(&ds, " ");
     }
     odp_flow_format(key, key_len, mask, mask_len, NULL, &ds, true);
     if (stats) {
@@ -1571,7 +1596,8 @@ log_flow_put_message(struct dpif *dpif, const struct dpif_flow_put *put,
         }
         log_flow_message(dpif, error, ds_cstr(&s),
                          put->key, put->key_len, put->mask, put->mask_len,
-                         put->stats, put->actions, put->actions_len);
+                         put->ufid, put->stats, put->actions,
+                         put->actions_len);
         ds_destroy(&s);
     }
 }
@@ -1582,7 +1608,8 @@ log_flow_del_message(struct dpif *dpif, const struct dpif_flow_del *del,
 {
     if (should_log_flow_message(error)) {
         log_flow_message(dpif, error, "flow_del", del->key, del->key_len,
-                         NULL, 0, !error ? del->stats : NULL, NULL, 0);
+                         NULL, 0, del->ufid, !error ? del->stats : NULL,
+                         NULL, 0);
     }
 }
 
@@ -1639,7 +1666,7 @@ log_flow_get_message(const struct dpif *dpif, const struct dpif_flow_get *get,
         log_flow_message(dpif, error, "flow_get",
                          get->key, get->key_len,
                          get->flow->mask, get->flow->mask_len,
-                         &get->flow->stats,
+                         get->ufid, &get->flow->stats,
                          get->flow->actions, get->flow->actions_len);
     }
 }

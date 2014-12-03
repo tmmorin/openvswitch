@@ -304,6 +304,7 @@ struct dp_netdev_flow {
 
     /* Hash table index by unmasked flow. */
     const struct cmap_node node; /* In owning dp_netdev's 'flow_table'. */
+    const ovs_u128 ufid;         /* Unique flow identifier. */
     const struct flow flow;      /* Unmasked flow that created this entry. */
 
     /* Number of references.
@@ -327,6 +328,8 @@ struct dp_netdev_flow {
 
 static void dp_netdev_flow_unref(struct dp_netdev_flow *);
 static bool dp_netdev_flow_ref(struct dp_netdev_flow *);
+static int dpif_netdev_flow_from_nlattrs(const struct nlattr *, uint32_t,
+                                         struct flow *);
 
 /* Contained by struct dp_netdev_flow's 'stats' member.  */
 struct dp_netdev_flow_stats {
@@ -1156,6 +1159,12 @@ static void dp_netdev_flow_unref(struct dp_netdev_flow *flow)
     }
 }
 
+static uint32_t
+dp_netdev_flow_hash(const ovs_u128 *ufid)
+{
+    return ufid->u32[0];
+}
+
 static void
 dp_netdev_remove_flow(struct dp_netdev *dp, struct dp_netdev_flow *flow)
     OVS_REQUIRES(dp->flow_mutex)
@@ -1163,7 +1172,7 @@ dp_netdev_remove_flow(struct dp_netdev *dp, struct dp_netdev_flow *flow)
     struct cmap_node *node = CONST_CAST(struct cmap_node *, &flow->node);
 
     dpcls_remove(&dp->cls, &flow->cr);
-    cmap_remove(&dp->flow_table, node, flow_hash(&flow->flow, 0));
+    cmap_remove(&dp->flow_table, node, dp_netdev_flow_hash(&flow->ufid));
     flow->dead = true;
 
     dp_netdev_flow_unref(flow);
@@ -1531,14 +1540,26 @@ dp_netdev_lookup_flow(const struct dp_netdev *dp,
 }
 
 static struct dp_netdev_flow *
-dp_netdev_find_flow(const struct dp_netdev *dp, const struct flow *flow)
+dp_netdev_find_flow(const struct dp_netdev *dp, const ovs_u128 *ufidp,
+                    const struct nlattr *key, size_t key_len)
 {
     struct dp_netdev_flow *netdev_flow;
+    struct flow flow;
+    ovs_u128 ufid;
 
-    CMAP_FOR_EACH_WITH_HASH (netdev_flow, node, flow_hash(flow, 0),
-                             &dp->flow_table) {
-        if (flow_equal(&netdev_flow->flow, flow)) {
-            return netdev_flow;
+    /* If a UFID is not provided, determine one based on the key. */
+    if (!ufidp && key && key_len
+        && !dpif_netdev_flow_from_nlattrs(key, key_len, &flow)) {
+        dpif_flow_hash(dp->dpif, &flow, sizeof flow, &ufid);
+        ufidp = &ufid;
+    }
+
+    if (ufidp) {
+        CMAP_FOR_EACH_WITH_HASH (netdev_flow, node, dp_netdev_flow_hash(ufidp),
+                                 &dp->flow_table) {
+            if (ovs_u128_equal(&netdev_flow->ufid, ufidp)) {
+                return netdev_flow;
+            }
         }
     }
 
@@ -1563,44 +1584,53 @@ get_dpif_flow_stats(const struct dp_netdev_flow *netdev_flow,
     }
 }
 
+static bool
+dpif_netdev_check_ufid(struct dpif *dpif OVS_UNUSED)
+{
+    return true;
+}
+
 /* Converts to the dpif_flow format, using 'key_buf' and 'mask_buf' for
  * storing the netlink-formatted key/mask. 'key_buf' may be the same as
  * 'mask_buf'. Actions will be returned without copying, by relying on RCU to
  * protect them. */
 static void
-dp_netdev_flow_to_dpif_flow(const struct dpif *dpif,
-                            const struct dp_netdev_flow *netdev_flow,
+dp_netdev_flow_to_dpif_flow(const struct dp_netdev_flow *netdev_flow,
                             struct ofpbuf *key_buf, struct ofpbuf *mask_buf,
-                            struct dpif_flow *flow)
+                            struct dpif_flow *flow, bool terse)
 {
-    struct flow_wildcards wc;
-    struct dp_netdev_actions *actions;
-    size_t offset;
+    if (terse) {
+        memset(flow, 0, sizeof *flow);
+    } else {
+        struct flow_wildcards wc;
+        struct dp_netdev_actions *actions;
+        size_t offset;
 
-    miniflow_expand(&netdev_flow->cr.mask->mf, &wc.masks);
+        miniflow_expand(&netdev_flow->cr.mask->mf, &wc.masks);
 
-    /* Key */
-    offset = ofpbuf_size(key_buf);
-    flow->key = ofpbuf_tail(key_buf);
-    odp_flow_key_from_flow(key_buf, &netdev_flow->flow, &wc.masks,
-                           netdev_flow->flow.in_port.odp_port, true);
-    flow->key_len = ofpbuf_size(key_buf) - offset;
+        /* Key */
+        offset = ofpbuf_size(key_buf);
+        flow->key = ofpbuf_tail(key_buf);
+        odp_flow_key_from_flow(key_buf, &netdev_flow->flow, &wc.masks,
+                               netdev_flow->flow.in_port.odp_port, true);
+        flow->key_len = ofpbuf_size(key_buf) - offset;
 
-    /* Mask */
-    offset = ofpbuf_size(mask_buf);
-    flow->mask = ofpbuf_tail(mask_buf);
-    odp_flow_key_from_mask(mask_buf, &wc.masks, &netdev_flow->flow,
-                           odp_to_u32(wc.masks.in_port.odp_port),
-                           SIZE_MAX, true);
-    flow->mask_len = ofpbuf_size(mask_buf) - offset;
+        /* Mask */
+        offset = ofpbuf_size(mask_buf);
+        flow->mask = ofpbuf_tail(mask_buf);
+        odp_flow_key_from_mask(mask_buf, &wc.masks, &netdev_flow->flow,
+                               odp_to_u32(wc.masks.in_port.odp_port),
+                               SIZE_MAX, true);
+        flow->mask_len = ofpbuf_size(mask_buf) - offset;
 
-    /* Actions */
-    actions = dp_netdev_flow_get_actions(netdev_flow);
-    flow->actions = actions->actions;
-    flow->actions_len = actions->size;
+        /* Actions */
+        actions = dp_netdev_flow_get_actions(netdev_flow);
+        flow->actions = actions->actions;
+        flow->actions_len = actions->size;
+    }
 
-    dpif_flow_hash(dpif, &netdev_flow->flow, sizeof netdev_flow->flow,
-                   &flow->ufid);
+    flow->ufid = netdev_flow->ufid;
+    flow->ufid_present = true;
     get_dpif_flow_stats(netdev_flow, &flow->stats);
 }
 
@@ -1701,20 +1731,13 @@ dpif_netdev_flow_get(const struct dpif *dpif, const struct dpif_flow_get *get)
 {
     struct dp_netdev *dp = get_dp_netdev(dpif);
     struct dp_netdev_flow *netdev_flow;
-    struct flow key;
-    int error;
+    int error = 0;
 
-    error = dpif_netdev_flow_from_nlattrs(get->key, get->key_len, &key);
-    if (error) {
-        return error;
-    }
-
-    netdev_flow = dp_netdev_find_flow(dp, &key);
-
+    netdev_flow = dp_netdev_find_flow(dp, get->ufid, get->key, get->key_len);
     if (netdev_flow) {
-        dp_netdev_flow_to_dpif_flow(dpif, netdev_flow, get->buffer,
-                                    get->buffer, get->flow);
-     } else {
+        dp_netdev_flow_to_dpif_flow(netdev_flow, get->buffer, get->buffer,
+                                    get->flow, false);
+    } else {
         error = ENOENT;
     }
 
@@ -1723,6 +1746,7 @@ dpif_netdev_flow_get(const struct dpif *dpif, const struct dpif_flow_get *get)
 
 static struct dp_netdev_flow *
 dp_netdev_flow_add(struct dp_netdev *dp, struct match *match,
+                   const ovs_u128 *ufid,
                    const struct nlattr *actions, size_t actions_len)
     OVS_REQUIRES(dp->flow_mutex)
 {
@@ -1737,13 +1761,14 @@ dp_netdev_flow_add(struct dp_netdev *dp, struct match *match,
     flow = xmalloc(sizeof *flow - sizeof flow->cr.flow.mf + mask.len);
     flow->dead = false;
     *CONST_CAST(struct flow *, &flow->flow) = match->flow;
+    *CONST_CAST(ovs_u128 *, &flow->ufid) = *ufid;
     ovs_refcount_init(&flow->ref_cnt);
     ovsthread_stats_init(&flow->stats);
     ovsrcu_set(&flow->actions, dp_netdev_actions_create(actions, actions_len));
 
     cmap_insert(&dp->flow_table,
                 CONST_CAST(struct cmap_node *, &flow->node),
-                flow_hash(&flow->flow, 0));
+                dp_netdev_flow_hash(&flow->ufid));
     netdev_flow_key_init_masked(&flow->cr.flow, &match->flow, &mask);
     dpcls_insert(&dp->cls, &flow->cr, &mask);
 
@@ -1755,6 +1780,8 @@ dp_netdev_flow_add(struct dp_netdev *dp, struct match *match,
         miniflow_expand(&flow->cr.mask->mf, &match.wc.masks);
 
         ds_put_cstr(&ds, "flow_add: ");
+        odp_format_ufid(ufid, &ds);
+        ds_put_cstr(&ds, " ");
         match_format(&match, &ds, OFP_DEFAULT_PRIORITY);
         ds_put_cstr(&ds, ", actions:");
         format_odp_actions(&ds, actions, actions_len);
@@ -1790,6 +1817,7 @@ dpif_netdev_flow_put(struct dpif *dpif, const struct dpif_flow_put *put)
     struct dp_netdev_flow *netdev_flow;
     struct netdev_flow_key key;
     struct match match;
+    ovs_u128 ufid;
     int error;
 
     error = dpif_netdev_flow_from_nlattrs(put->key, put->key_len, &match.flow);
@@ -1808,6 +1836,12 @@ dpif_netdev_flow_put(struct dpif *dpif, const struct dpif_flow_put *put)
      * for upcall processing any more. */
     netdev_flow_key_from_flow(&key, &match.flow);
 
+    if (put->ufid) {
+        ufid = *put->ufid;
+    } else {
+        dpif_flow_hash(dpif, &match.flow, sizeof match.flow, &ufid);
+    }
+
     ovs_mutex_lock(&dp->flow_mutex);
     netdev_flow = dp_netdev_lookup_flow(dp, &key);
     if (!netdev_flow) {
@@ -1816,7 +1850,8 @@ dpif_netdev_flow_put(struct dpif *dpif, const struct dpif_flow_put *put)
                 if (put->stats) {
                     memset(put->stats, 0, sizeof *put->stats);
                 }
-                dp_netdev_flow_add(dp, &match, put->actions, put->actions_len);
+                dp_netdev_flow_add(dp, &match, &ufid, put->actions,
+                                   put->actions_len);
                 error = 0;
             } else {
                 error = EFBIG;
@@ -1861,16 +1896,10 @@ dpif_netdev_flow_del(struct dpif *dpif, const struct dpif_flow_del *del)
 {
     struct dp_netdev *dp = get_dp_netdev(dpif);
     struct dp_netdev_flow *netdev_flow;
-    struct flow key;
-    int error;
-
-    error = dpif_netdev_flow_from_nlattrs(del->key, del->key_len, &key);
-    if (error) {
-        return error;
-    }
+    int error = 0;
 
     ovs_mutex_lock(&dp->flow_mutex);
-    netdev_flow = dp_netdev_find_flow(dp, &key);
+    netdev_flow = dp_netdev_find_flow(dp, del->ufid, del->key, del->key_len);
     if (netdev_flow) {
         if (del->stats) {
             get_dpif_flow_stats(netdev_flow, del->stats);
@@ -1898,7 +1927,7 @@ dpif_netdev_flow_dump_cast(struct dpif_flow_dump *dump)
 }
 
 static struct dpif_flow_dump *
-dpif_netdev_flow_dump_create(const struct dpif *dpif_)
+dpif_netdev_flow_dump_create(const struct dpif *dpif_, bool terse)
 {
     struct dpif_netdev_flow_dump *dump;
 
@@ -1906,6 +1935,7 @@ dpif_netdev_flow_dump_create(const struct dpif *dpif_)
     dpif_flow_dump_init(&dump->up, dpif_);
     memset(&dump->pos, 0, sizeof dump->pos);
     dump->status = 0;
+    dump->up.terse = terse;
     ovs_mutex_init(&dump->mutex);
 
     return &dump->up;
@@ -1994,7 +2024,8 @@ dpif_netdev_flow_dump_next(struct dpif_flow_dump_thread *thread_,
 
         ofpbuf_use_stack(&key, keybuf, sizeof *keybuf);
         ofpbuf_use_stack(&mask, maskbuf, sizeof *maskbuf);
-        dp_netdev_flow_to_dpif_flow(&dpif->dpif, netdev_flow, &key, &mask, f);
+        dp_netdev_flow_to_dpif_flow(netdev_flow, &key, &mask, f,
+                                    dump->up.terse);
     }
 
     return n_flows;
@@ -2029,10 +2060,12 @@ dpif_netdev_execute(struct dpif *dpif, struct dpif_execute *execute)
      * the 'non_pmd_mutex'. */
     if (pmd->core_id == NON_PMD_CORE_ID) {
         ovs_mutex_lock(&dp->non_pmd_mutex);
+        ovs_mutex_lock(&dp->port_mutex);
     }
     dp_netdev_execute_actions(pmd, &pp, 1, false, execute->actions,
                               execute->actions_len);
     if (pmd->core_id == NON_PMD_CORE_ID) {
+        ovs_mutex_unlock(&dp->port_mutex);
         ovs_mutex_unlock(&dp->non_pmd_mutex);
     }
 
@@ -2899,7 +2932,7 @@ fast_path_processing(struct dp_netdev_pmd_thread *pmd,
                 ovs_mutex_lock(&dp->flow_mutex);
                 netdev_flow = dp_netdev_lookup_flow(dp, &keys[i]);
                 if (OVS_LIKELY(!netdev_flow)) {
-                    netdev_flow = dp_netdev_flow_add(dp, &match,
+                    netdev_flow = dp_netdev_flow_add(dp, &match, &ufid,
                                                      ofpbuf_data(add_actions),
                                                      ofpbuf_size(add_actions));
                 }
@@ -3224,6 +3257,7 @@ const struct dpif_class dpif_netdev_class = {
     dpif_netdev_enable_upcall,
     dpif_netdev_disable_upcall,
     dpif_netdev_get_datapath_version,
+    dpif_netdev_check_ufid,
 };
 
 static void

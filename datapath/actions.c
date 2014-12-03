@@ -990,6 +990,14 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_ETH:
+			err = push_eth(skb, key, nla_data(a));
+			break;
+
+		case OVS_ACTION_ATTR_POP_ETH:
+			err = pop_eth(skb, key);
+			break;
+
+		case OVS_ACTION_ATTR_PUSH_ETH:
 			printk(KERN_WARNING "do_execute_actions: push_eth\n");
 			err = push_eth(skb, key, nla_data(a));
 			break;
