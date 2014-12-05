@@ -3322,8 +3322,11 @@ parse_ethertype(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
     static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
     bool is_mask = flow != src_flow;
 
+    VLOG_WARN("parse_ethertype");
+
     if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_ETHERTYPE)) {
         flow->dl_type = nl_attr_get_be16(attrs[OVS_KEY_ATTR_ETHERTYPE]);
+        VLOG_WARN("parse_ethertype: ATTR_ETHERTYPE present: %04x",flow->dl_type);
         if (!is_mask && ntohs(flow->dl_type) < ETH_TYPE_MIN) {
             VLOG_ERR_RL(&rl, "invalid Ethertype %"PRIu16" in flow key",
                         ntohs(flow->dl_type));
@@ -3335,11 +3338,13 @@ parse_ethertype(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
         }
         *expected_attrs |= UINT64_C(1) << OVS_KEY_ATTR_ETHERTYPE;
     } else {
+        VLOG_WARN("parse_ethertype: ATTR_ETHERTYPE not present");
         if (!is_mask) {
             if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_IPV4)) {
                 flow->dl_type = htons(ETH_TYPE_IP);
             } else if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_IPV6)) {
                 flow->dl_type = htons(ETH_TYPE_IPV6);
+            } else if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_IPV6)) {
             } else {
                 flow->dl_type = htons(FLOW_DL_TYPE_NONE);
             }

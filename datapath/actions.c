@@ -144,6 +144,7 @@ static void printk_skb(struct sk_buff *skb) {
 			skb->data[16*i+3],
 			skb->data[16*i+4],
 			skb->data[16*i+5],
+			skb->data[16*i+6],
 			skb->data[16*i+7],
 			skb->data[16*i+8],
 			skb->data[16*i+9],
@@ -179,8 +180,7 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 		return -ENOMEM;
 
 	skb_push(skb, MPLS_HLEN);
-	/* probably breaks !! */
-	if (!key->phy.is_layer3) {
+	if (skb->mac_len) {
 		memmove(skb_mac_header(skb) - MPLS_HLEN, skb_mac_header(skb),
 			skb->mac_len);
 		skb_reset_mac_header(skb);
@@ -195,7 +195,6 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 		skb->csum = csum_add(skb->csum, csum_partial(new_mpls_lse,
 							     MPLS_HLEN, 0));
 	printk_skb(skb);
-	/* this is still eth specific...*/
 	if (skb->mac_len) {
 		printk(KERN_WARNING "setting eth protocol\n");
 		hdr = eth_hdr(skb);
@@ -236,14 +235,14 @@ static int pop_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	__skb_pull(skb, MPLS_HLEN);
 	skb_reset_mac_header(skb);
 
-	if (!key->phy.is_layer3) {
+	if (skb->mac_len) {
 	       /* skb_mpls_header() is used to locate the ethertype
 		* field correctly in the presence of VLAN tags.
 		*/
 	       hdr = (struct ethhdr *)(skb_mpls_header(skb) - ETH_HLEN);
 	       hdr->h_proto = ethertype;
 	}
-	if (eth_p_mpls(skb->protocol))
+	if (eth_p_mpls(skb->protocol))   /* looks incorrect: if skb->protocol is not mpls we should be popping in the first place */
 		skb->protocol = ethertype;
 
 	invalidate_flow_key(key);
@@ -987,14 +986,6 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 
 		case OVS_ACTION_ATTR_POP_VLAN:
 			err = pop_vlan(skb, key);
-			break;
-
-		case OVS_ACTION_ATTR_PUSH_ETH:
-			err = push_eth(skb, key, nla_data(a));
-			break;
-
-		case OVS_ACTION_ATTR_POP_ETH:
-			err = pop_eth(skb, key);
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_ETH:

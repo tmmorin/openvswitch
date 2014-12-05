@@ -1254,8 +1254,11 @@ int ovs_nla_put_flow(const struct sw_flow_key *swkey,
 	if (nla_put_u32(skb, OVS_KEY_ATTR_SKB_MARK, output->phy.skb_mark))
 		goto nla_put_failure;
 
-	if (swkey->phy.is_layer3)
+	if (swkey->phy.is_layer3) {
+		printk(KERN_WARNING "ovs_nla_put_flow: skipping to no_eth\n");
+		printk(KERN_WARNING "ovs_nla_put_flow:    (output->eth.type = %x)\n",output->eth.type);
 		goto noethernet;
+	}
 
 	nla = nla_reserve(skb, OVS_KEY_ATTR_ETHERNET, sizeof(*eth_key));
 	if (!nla)
@@ -1290,6 +1293,7 @@ int ovs_nla_put_flow(const struct sw_flow_key *swkey,
 		goto unencap;
 	}
 
+	printk(KERN_WARNING "ovs_nla_put_flow: nla_put_be16(skb, OVS_KEY_ATTR_ETHERTYPE, output->eth.type = %x)\n",output->eth.type);
 	if (nla_put_be16(skb, OVS_KEY_ATTR_ETHERTYPE, output->eth.type))
 		goto nla_put_failure;
 
@@ -1737,8 +1741,11 @@ static int validate_set(const struct nlattr *a,
 		break;
 
 	case OVS_KEY_ATTR_TUNNEL:
-		if (eth_p_mpls(eth_type))
+		/* why...? */
+		if (eth_p_mpls(eth_type)) {
+			printk(KERN_WARNING "validate_set: refusing ATTR_TUNNEL with eth_type MPLS\n");
 			return -EINVAL;
+		}
 
 		*set_tun = true;
 		err = validate_and_copy_set_tun(a, sfa, log);
@@ -1794,8 +1801,9 @@ static int validate_set(const struct nlattr *a,
 		return validate_tp_port(flow_key, eth_type);
 
 	case OVS_KEY_ATTR_MPLS:
-		if (is_layer3)
-			return -EINVAL;
+		/* why...? */
+		/*if (is_layer3)
+			return -EINVAL;*/
 		if (!eth_p_mpls(eth_type))
 			return -EINVAL;
 		break;
