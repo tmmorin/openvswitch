@@ -640,19 +640,19 @@ recv_upcalls(struct handler *handler)
 
         ofpbuf_use_stub(recv_buf, recv_stubs[n_upcalls],
                         sizeof recv_stubs[n_upcalls]);
-    VLOG_WARN("recv_upcalls:iter 1");
+        VLOG_WARN("recv_upcalls:iter 1");
         if (dpif_recv(udpif->dpif, handler->handler_id, dupcall, recv_buf)) {
             ofpbuf_uninit(recv_buf);
             break;
         }
 
-    VLOG_WARN("recv_upcalls:iter 2");
+        VLOG_WARN("recv_upcalls:iter 2");
         if (odp_flow_key_to_flow(dupcall->key, dupcall->key_len, flow)
             == ODP_FIT_ERROR) {
             goto free_dupcall;
         }
-
-    VLOG_WARN("recv_upcalls:iter 3");
+ 
+        VLOG_WARN("recv_upcalls:iter 3");
         error = upcall_receive(upcall, udpif->backer, &dupcall->packet,
                                dupcall->type, dupcall->userdata, flow,
                                &dupcall->ufid);
@@ -677,17 +677,17 @@ recv_upcalls(struct handler *handler)
 
         upcall->out_tun_key = dupcall->out_tun_key;
 
-    VLOG_WARN("recv_upcalls:iter 4");
+        VLOG_WARN("recv_upcalls:iter 4");
         if (vsp_adjust_flow(upcall->ofproto, flow, &dupcall->packet)) {
             upcall->vsp_adjusted = true;
         }
 
-    VLOG_WARN("recv_upcalls:iter 5");
+        VLOG_WARN("recv_upcalls:iter 5");
         md = pkt_metadata_from_flow(flow);
-    VLOG_WARN("recv_upcalls:iter 6");
+        VLOG_WARN("recv_upcalls:iter 6");
         flow_extract(&dupcall->packet, &md, flow);
-
-    VLOG_WARN("recv_upcalls:iter 7");
+  
+        VLOG_WARN("recv_upcalls:iter 7 (process_upcall with NULL actions)");
         error = process_upcall(udpif, upcall, NULL);
         if (error) {
             VLOG_WARN("recv_upcalls:process_upcall error");
@@ -698,7 +698,7 @@ recv_upcalls(struct handler *handler)
         continue;
 
 cleanup:
-    VLOG_WARN("recv_upcalls:iter 8");
+        VLOG_WARN("recv_upcalls:iter 8");
         upcall_uninit(upcall);
 free_dupcall:
         ofpbuf_uninit(&dupcall->packet);
@@ -707,7 +707,7 @@ free_dupcall:
 
     VLOG_WARN("recv_upcalls:iter d1");
     if (n_upcalls) {
-    VLOG_WARN("recv_upcalls:iter d2");
+        VLOG_WARN("recv_upcalls:iter d2");
         handle_upcalls(handler->udpif, upcalls, n_upcalls);
         for (i = 0; i < n_upcalls; i++) {
             ofpbuf_uninit(&dupcalls[i].packet);
@@ -952,7 +952,9 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
 
     upcall->dump_seq = seq_read(udpif->dump_seq);
     upcall->reval_seq = seq_read(udpif->reval_seq);
+    VLOG_WARN("upcall_xlate -> xlate_actions");
     xlate_actions(&xin, &upcall->xout);
+    VLOG_WARN("upcall_xlate after xlate_actions");
     upcall->xout_initialized = true;
 
     /* Special case for fail-open mode.
@@ -981,10 +983,12 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
     }
 
     if (!upcall->xout.slow) {
+	VLOG_WARN("not slow, put actions...");
         ofpbuf_use_const(&upcall->put_actions,
                          ofpbuf_data(upcall->xout.odp_actions),
                          ofpbuf_size(upcall->xout.odp_actions));
     } else {
+	VLOG_WARN("slow, put actions, compose_slow_path...");
         ofpbuf_init(&upcall->put_actions, 0);
         compose_slow_path(udpif, &upcall->xout, upcall->flow,
                           upcall->flow->in_port.odp_port,
@@ -1019,6 +1023,8 @@ upcall_cb(const struct ofpbuf *packet, const struct flow *flow, ovs_u128 *ufid,
     struct upcall upcall;
     bool megaflow;
     int error;
+
+    VLOG_WARN("upcall_cb");
 
     atomic_read_relaxed(&enable_megaflows, &megaflow);
     atomic_read_relaxed(&udpif->flow_limit, &flow_limit);
@@ -1075,8 +1081,9 @@ process_upcall(struct udpif *udpif, struct upcall *upcall,
 
     switch (classify_upcall(upcall->type, userdata)) {
     case MISS_UPCALL:
-        VLOG_WARN("process_upcall:miss_upcalll->upcall_xlate");
+        VLOG_WARN("process_upcall:miss_upcall->upcall_xlate");
         upcall_xlate(udpif, upcall, odp_actions);
+        VLOG_WARN("process_upcall:return 0");
         return 0;
 
     case SFLOW_UPCALL:
@@ -1132,6 +1139,7 @@ process_upcall(struct udpif *udpif, struct upcall *upcall,
         break;
     }
 
+    VLOG_WARN("process_upcall:end return EAGAIN");
     return EAGAIN;
 }
 
@@ -1169,6 +1177,7 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
         const struct ofpbuf *packet = upcall->packet;
         struct ukey_op *op;
 
+        VLOG_WARN("handle upcall... loop 1");
         if (upcall->vsp_adjusted) {
             /* This packet was received on a VLAN splinter port.  We added a
              * VLAN to the packet to make the packet resemble the flow, but the
@@ -1210,6 +1219,7 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
         }
 
         if (ofpbuf_size(upcall->xout.odp_actions)) {
+            VLOG_WARN("handle upcall... need to execute (upcall->xout.odp_actions non zero)");
             op = &ops[n_ops++];
             op->ukey = NULL;
             op->dop.type = DPIF_OP_EXECUTE;
@@ -1233,6 +1243,7 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
     for (i = 0; i < n_ops; i++) {
         struct udpif_key *ukey = ops[i].ukey;
 
+        VLOG_WARN("handle upcall... batch loop...");
         if (ukey) {
             /* If we can't install the ukey, don't install the flow. */
             if (!ukey_install_start(udpif, ukey)) {
@@ -1243,7 +1254,9 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
         }
         opsp[n_opsp++] = &ops[i].dop;
     }
+        VLOG_WARN("handle upcall... before dpif_operate...");
     dpif_operate(udpif->dpif, opsp, n_opsp);
+        VLOG_WARN("handle upcall... after dpif_operate...");
     for (i = 0; i < n_ops; i++) {
         if (ops[i].ukey) {
             ukey_install_finish(ops[i].ukey, ops[i].dop.error);
@@ -1578,6 +1591,8 @@ revalidate_ukey(struct udpif *udpif, struct udpif_key *ukey,
     size_t i;
     bool ok;
     bool need_revalidate;
+
+    VLOG_WARN("revalidate_ukey"); 
 
     ok = false;
     xoutp = NULL;

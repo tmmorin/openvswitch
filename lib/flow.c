@@ -38,6 +38,10 @@
 #include "odp-util.h"
 #include "random.h"
 #include "unaligned.h"
+#include "vlog.h"
+
+VLOG_DEFINE_THIS_MODULE(flow);
+
 
 COVERAGE_DEFINE(flow_extract);
 COVERAGE_DEFINE(miniflow_malloc);
@@ -408,6 +412,8 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
         frame = data;
         miniflow_push_uint32(mf, base_layer, LAYER_2);
 
+	VLOG_WARN("miniflow_extract: l2");
+
         /* Must have full Ethernet header to proceed. */
         if (OVS_UNLIKELY(size < sizeof(struct eth_header))) {
             goto out;
@@ -439,15 +445,18 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
         packet->l3_ofs = (char *)data - frame;
     } else {
         miniflow_push_uint32(mf, base_layer, LAYER_3);
+	VLOG_WARN("miniflow_extract: l3");
 
-    	if (md && md->tunnel.ethertype) {
-		dl_type = md->tunnel.ethertype;
+    	if (md && md->base_layer == LAYER_3)  {
+		VLOG_WARN("miniflow_extract: l3 bl ... md->protocol: %04x", md->protocol);
+		dl_type = md->protocol;
 
 		/* Parse mpls.  ---- FIXME: to factor-out with the above ----*/
 		if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
 		    int count;
 		    const void *mpls = data;
 
+		    VLOG_WARN("miniflow_extract: l3 mpls");
 		    packet->l2_5_ofs = (char *)data - frame;
 		    count = parse_mpls(&data, &size);
 		    miniflow_push_words(mf, mpls_lse, mpls, count);
@@ -457,6 +466,7 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
 		/** FIXME ------- not true for all packets, needs to be correctly handled with a pop_mpls -> set ethertype */
                 packet->l3_ofs = (char *)data - frame;
 	} else {
+		VLOG_WARN("miniflow_extract: l3 just assume... (md->protocol iz zero)");
 		/* We assume L3 packets are either IPv4 or IPv6 */
 		dl_type = get_l3_eth_type(packet);  
 		miniflow_push_be16(mf, dl_type, dl_type);

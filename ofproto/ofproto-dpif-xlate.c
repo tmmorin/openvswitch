@@ -2558,6 +2558,8 @@ build_tunnel_send(const struct xlate_ctx *ctx, const struct xport *xport,
     uint8_t dmac[ETH_ADDR_LEN];
     int err;
 
+    VLOG_WARN("build_tunnel_send");
+
     err = tnl_route_lookup_flow(flow, &d_ip, &out_dev);
     if (err) {
         return err;
@@ -2594,6 +2596,7 @@ build_tunnel_send(const struct xlate_ctx *ctx, const struct xport *xport,
     tnl_push_data.tnl_port = odp_to_u32(tunnel_odp_port);
     tnl_push_data.out_port = odp_to_u32(out_dev->odp_port);
     odp_put_tnl_push_action(ctx->xout->odp_actions, &tnl_push_data);
+    VLOG_WARN("build_tunnel_send, success");
     return 0;
 }
 
@@ -2612,6 +2615,8 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
     odp_port_t out_port, odp_port;
     bool tnl_push_pop_send = false;
     uint8_t dscp;
+
+    VLOG_WARN("compose output action...");
 
     /* If 'struct flow' gets additional metadata, we'll need to zero it out
      * before traversing a patch port. */
@@ -2663,6 +2668,8 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
         } else if (in_xport && in_xport->is_layer3 && !xport->is_layer3) {
             const uint8_t eth_addr_zeroes[ETH_ADDR_LEN]
                 = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    	    VLOG_WARN("build_tunnel_send, pop/push eth if mismatching ports");
 
             odp_put_push_eth_action(ctx->xout->odp_actions, eth_addr_zeroes,
                                     eth_addr_zeroes, flow->dl_type);
@@ -2839,6 +2846,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
         ctx->xout->nf_output_iface = ofp_port;
     }
 
+    VLOG_WARN("compose output action, end");
  out:
     /* Restore flow */
     flow->vlan_tci = flow_vlan_tci;
@@ -4310,6 +4318,9 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
     size_t ofpacts_len;
     bool tnl_may_send;
     bool is_icmp;
+
+    VLOG_WARN("xlate_actions");
+    VLOG_WARN("xlate_actions: TM FIXME FIXME: add tracing of xout->actions content size here...");
 
     COVERAGE_INC(xlate_actions);
 

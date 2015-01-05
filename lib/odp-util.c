@@ -3341,11 +3341,16 @@ parse_ethertype(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
         VLOG_WARN("parse_ethertype: ATTR_ETHERTYPE not present");
         if (!is_mask) {
             if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_IPV4)) {
+        	VLOG_WARN("parse_ethertype: ATTR_ETHERTYPE not present, guessing IPv4 because ATTR_IPV4 present");
                 flow->dl_type = htons(ETH_TYPE_IP);
             } else if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_IPV6)) {
+        	VLOG_WARN("parse_ethertype: ATTR_ETHERTYPE not present, guessing IPv6 because ATTR_IPV6 present");
                 flow->dl_type = htons(ETH_TYPE_IPV6);
-            } else if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_IPV6)) {
+            } else if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_MPLS)) {
+        	VLOG_WARN("parse_ethertype: ATTR_ETHERTYPE not present, 'guessing' 8847 because ATTR_MPLS present :(");
+                flow->dl_type = htons(ETH_TYPE_MPLS);  /* FIXME: having OVS_KEY_ATTR_MPLS is not enough to guess eth_type (can be 8847 or 8848) */
             } else {
+        	VLOG_WARN("parse_ethertype: ATTR_ETHERTYPE not present and not guessing\n");
                 flow->dl_type = htons(FLOW_DL_TYPE_NONE);
             }
         } else if (ntohs(src_flow->dl_type) < ETH_TYPE_MIN) {
@@ -3376,7 +3381,7 @@ parse_l2_5_onward(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
 
     VLOG_WARN("parse_l2_5_onward: dl_type is %x",src_flow->dl_type);
     if (eth_type_mpls(src_flow->dl_type)) {
-	VLOG_WARN("parse_l2_5_onward: dl_type is MPLS");
+	VLOG_WARN("parse_l2_5_onward: dl_type is MPLS !!");
         if (!is_mask || present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_MPLS)) {
             expected_attrs |= (UINT64_C(1) << OVS_KEY_ATTR_MPLS);
         }
@@ -3389,17 +3394,21 @@ parse_l2_5_onward(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
             if (!size || size % sizeof(ovs_be32)) {
                 return ODP_FIT_ERROR;
             }
+	    VLOG_WARN("parse_l2_5_onward: dl_type is MPLS: A");
             if (flow->mpls_lse[0] && flow->dl_type != htons(0xffff)) {
                 return ODP_FIT_ERROR;
             }
 
+	    VLOG_WARN("parse_l2_5_onward: dl_type is MPLS: B");
             for (i = 0; i < n && i < FLOW_MAX_MPLS_LABELS; i++) {
                 flow->mpls_lse[i] = mpls_lse[i];
             }
+	    VLOG_WARN("parse_l2_5_onward: dl_type is MPLS: C");
             if (n > FLOW_MAX_MPLS_LABELS) {
                 return ODP_FIT_TOO_MUCH;
             }
 
+	    VLOG_WARN("parse_l2_5_onward: dl_type is MPLS: D");
             if (!is_mask) {
                 /* BOS may be set only in the innermost label. */
                 for (i = 0; i < n - 1; i++) {
@@ -3414,8 +3423,10 @@ parse_l2_5_onward(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
                     return ODP_FIT_TOO_LITTLE;
                 }
             }
+	    VLOG_WARN("parse_l2_5_onward: dl_type is MPLS: E");
         }
 
+        VLOG_WARN("parse_l2_5_onward: dl_type is MPLS: F");
         goto done;
     } else if (src_flow->dl_type == htons(ETH_TYPE_IP)) {
         if (!is_mask) {

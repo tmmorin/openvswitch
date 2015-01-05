@@ -1344,7 +1344,7 @@ noethernet:
 	} else if (eth_p_mpls(swkey->eth.type)) {
 		struct ovs_key_mpls *mpls_key;
 	
-		printk(KERN_WARNING "ovs_nla_put_flow: add OVS_KEY_ATTR_MPLS (because swkey->eth.type is MPLS)");
+		printk(KERN_WARNING "ovs_nla_put_flow: add OVS_KEY_ATTR_MPLS (because swkey->eth.type is MPLS)\n");
 		nla = nla_reserve(skb, OVS_KEY_ATTR_MPLS, sizeof(*mpls_key));
 		if (!nla)
 			goto nla_put_failure;
@@ -1802,8 +1802,10 @@ static int validate_set(const struct nlattr *a,
 
 	case OVS_KEY_ATTR_MPLS:
 		/* why...? */
-		/*if (is_layer3)
-			return -EINVAL;*/
+		if (is_layer3) {
+			printk(KERN_WARNING "validate_set would break on KEY_ATTR_MPLS and is_layer3, bypassing\n");
+			/*return -EINVAL;*/
+		}
 		if (!eth_p_mpls(eth_type))
 			return -EINVAL;
 		break;
@@ -1915,7 +1917,7 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			break;
 
 		case OVS_ACTION_ATTR_OUTPUT:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b3\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b3 (output)\n");
 			if (nla_get_u32(a) >= DP_MAX_PORTS)
 				return -EINVAL;
 			printk(KERN_WARNING "__ovs_nla_copy_actions:b3-\n");
@@ -1938,7 +1940,7 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 		}
 
 		case OVS_ACTION_ATTR_POP_ETH:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b5\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b5 (pop_eth)\n");
 			if (is_layer3)
 				return -EINVAL;
 			printk(KERN_WARNING "__ovs_nla_copy_actions:b5--\n");
@@ -1949,7 +1951,7 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_ETH:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b6\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b6 (push_eth)\n");
 			/* For now disallow pushing an Ethernet header if one
 			 * is already present */
 			if (!is_layer3)
@@ -1983,14 +1985,14 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 		case OVS_ACTION_ATTR_PUSH_MPLS: {
 			const struct ovs_action_push_mpls *mpls = nla_data(a);
 
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b9\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b9 (push_mpls)\n");
 			/* Networking stack do not allow simultaneous Tunnel
 			 * and MPLS GSO.
 			 */
-		if (out_tnl_port) {
-			printk(KERN_WARNING "__ovs_nla_copy_actions: Networking stack do not allow simultaneous Tunnel and MPLS GSO\n");
+			if (out_tnl_port) {
+				printk(KERN_WARNING "__ovs_nla_copy_actions: Networking stack do not allow simultaneous Tunnel and MPLS GSO -- would return EINVAL\n");
 				//return -EINVAL;
-}
+			}
 
 			printk(KERN_WARNING "__ovs_nla_copy_actions:b9-\n");
 			if (!eth_p_mpls(mpls->mpls_ethertype))
@@ -2012,7 +2014,7 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 		}
 
 		case OVS_ACTION_ATTR_POP_MPLS:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b10\n");
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b10 (pop_mpls)\n");
 			if (vlan_tci & htons(VLAN_TAG_PRESENT) ||
 			    !eth_p_mpls(eth_type))
 				return -EINVAL;

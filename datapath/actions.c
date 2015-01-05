@@ -218,7 +218,7 @@ static int pop_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	struct ethhdr *hdr;
 	int err;
 
-	printk(KERN_WARNING "skb->mac_len: %d", skb->mac_len);
+	printk(KERN_WARNING "pop_mpls: skb->mac_len: %d\n", skb->mac_len);
 
 	err = make_writable(skb, skb->mac_len + MPLS_HLEN);
 	if (unlikely(err))
@@ -714,10 +714,13 @@ static void do_output(struct datapath *dp, struct sk_buff *skb, int out_port)
 {
 	struct vport *vport = ovs_vport_rcu(dp, out_port);
 
-	if (likely(vport))
+	if (likely(vport)) {
+		printk(KERN_WARNING "do_ouptut: ovs_vport_send\n");
 		ovs_vport_send(vport, skb);
-	else
+	} else {
+		printk(KERN_WARNING "do_ouptut: no vport, kfree_skb\n");
 		kfree_skb(skb);
+	}
 }
 
 static int output_userspace(struct datapath *dp, struct sk_buff *skb,
@@ -957,6 +960,7 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 
 		switch (nla_type(a)) {
 		case OVS_ACTION_ATTR_OUTPUT:
+			printk(KERN_WARNING "do_execute_actions: output\n");
 			prev_port = nla_get_u32(a);
 			break;
 
@@ -989,14 +993,6 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_ETH:
-			err = push_eth(skb, key, nla_data(a));
-			break;
-
-		case OVS_ACTION_ATTR_POP_ETH:
-			err = pop_eth(skb, key);
-			break;
-
-		case OVS_ACTION_ATTR_PUSH_ETH:
 			printk(KERN_WARNING "do_execute_actions: push_eth\n");
 			err = push_eth(skb, key, nla_data(a));
 			break;
@@ -1007,6 +1003,7 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			break;
 
 		case OVS_ACTION_ATTR_RECIRC:
+			printk(KERN_WARNING "do_execute_actions: recirc\n");
 			err = execute_recirc(dp, skb, key, a, rem);
 			if (nla_is_last(a, rem)) {
 				/* If this is the last action, the skb has
@@ -1018,6 +1015,7 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			break;
 
 		case OVS_ACTION_ATTR_SET:
+			printk(KERN_WARNING "do_execute_actions: set\n");
 			err = execute_set_action(skb, key, nla_data(a));
 			break;
 
@@ -1034,10 +1032,13 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 		}
 	}
 
-	if (prev_port != -1)
+	if (prev_port != -1) {
+		printk(KERN_WARNING "do_execute_actions: do_output\n");
 		do_output(dp, skb, prev_port);
-	else
+	} else {
+		printk(KERN_WARNING "do_execute_actions: consume_skb\n");
 		consume_skb(skb);
+	}
 
 	return 0;
 }

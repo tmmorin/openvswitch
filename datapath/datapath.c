@@ -862,6 +862,8 @@ static int ovs_flow_cmd_new(struct sk_buff *skb, struct genl_info *info)
 	int error;
 	bool log = !a[OVS_FLOW_ATTR_PROBE];
 
+	printk(KERN_WARNING "ovs_flow_cmd_new\n");
+
 	/* Must have key and actions. */
 	error = -EINVAL;
 	if (!a[OVS_FLOW_ATTR_KEY]) {
@@ -881,6 +883,7 @@ static int ovs_flow_cmd_new(struct sk_buff *skb, struct genl_info *info)
 		error = PTR_ERR(new_flow);
 		goto error;
 	}
+	printk(KERN_WARNING "ovs_flow_cmd_new:1\n");
 
 	/* Extract key. */
 	ovs_match_init(&match, &new_flow->unmasked_key, &mask);
@@ -889,11 +892,14 @@ static int ovs_flow_cmd_new(struct sk_buff *skb, struct genl_info *info)
 	if (error)
 		goto err_kfree_flow;
 
+	printk(KERN_WARNING "ovs_flow_cmd_new:2\n");
 	ovs_flow_mask_key(&new_flow->key, &new_flow->unmasked_key, &mask);
 
+	printk(KERN_WARNING "ovs_flow_cmd_new:3\n");
 	/* Validate actions. */
 	error = ovs_nla_copy_actions(a[OVS_FLOW_ATTR_ACTIONS], &new_flow->key,
 				     &acts, log);
+	printk(KERN_WARNING "ovs_flow_cmd_new:4\n");
 	if (error) {
 		OVS_NLERR(log, "Flow actions may not be safe on all matching packets.");
 		goto err_kfree_flow;
@@ -975,6 +981,7 @@ static int ovs_flow_cmd_new(struct sk_buff *skb, struct genl_info *info)
 
 	if (reply)
 		ovs_notify(&dp_flow_genl_family, &ovs_dp_flow_multicast_group, reply, info);
+	printk(KERN_WARNING "ovs_flow_cmd_new:return success\n");
 	return 0;
 
 err_unlock_ovs:
@@ -985,6 +992,7 @@ err_kfree_acts:
 err_kfree_flow:
 	ovs_flow_free(new_flow, false);
 error:
+	printk(KERN_WARNING "ovs_flow_cmd_new:return error\n");
 	return error;
 }
 

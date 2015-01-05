@@ -208,6 +208,8 @@ static int __send(struct vport *vport, struct sk_buff *skb,
 	df = tun_key->tun_flags & TUNNEL_DONT_FRAGMENT ? htons(IP_DF) : 0;
 	skb->ignore_df = 1;
 
+	printk(KERN_WARNING "vport-gre __send\n");
+
 	return iptunnel_xmit(skb->sk, rt, skb, saddr,
 			     tun_key->ipv4_dst, IPPROTO_GRE,
 			     tun_key->ipv4_tos,
@@ -302,15 +304,6 @@ static int gre_send(struct vport *vport, struct sk_buff *skb)
 
 	if (unlikely(!OVS_CB(skb)->egress_tun_info))
 		return -EINVAL;
-
-	/* Reject layer 3 packets */
-	if (unlikely(skb->mac_len == 0))
-		return -EINVAL;
-
-	/* Reject layer 3 packets */
-	/* FIXME: need to relax this... */
-/*	if (unlikely(skb->mac_len == 0))
-		return -EINVAL;*/
 
 	hlen = ip_gre_calc_hlen(OVS_CB(skb)->egress_tun_info->tunnel.tun_flags);
 
