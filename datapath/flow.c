@@ -484,6 +484,7 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 		key->eth.type = parse_ethertype(skb);
 		if (unlikely(key->eth.type == htons(0)))
 			return -ENOMEM;
+	}
 
 		skb_reset_network_header(skb);  /* not in lori's v8 */
 	}

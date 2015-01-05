@@ -1535,7 +1535,7 @@ cleanup:
         POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
             usrParamsCtx->outputBuffer;
 
-        BuildErrorMsg(msgIn, msgError, nlError);
+        NlBuildErrorMsg(msgIn, msgError, nlError);
         *replyLen = msgError->nlMsg.nlmsgLen;
     }
 
@@ -1558,46 +1558,45 @@ CreateNetlinkMesgForNetdev(POVS_VPORT_EXT_INFO info,
 {
     NL_BUFFER nlBuffer;
     BOOLEAN ok;
-    OVS_MESSAGE msgOut;
     PNL_MSG_HDR nlMsg;
     UINT32 netdevFlags = 0;
 
     NlBufInit(&nlBuffer, outBuffer, outBufLen);
 
-    BuildReplyMsgFromMsgIn(msgIn, &msgOut, 0);
-    msgOut.ovsHdr.dp_ifindex = dpIfIndex;
-
-    ok = NlMsgPutHead(&nlBuffer, (PCHAR)&msgOut, sizeof msgOut);
+    ok = NlFillOvsMsg(&nlBuffer, msgIn->nlMsg.nlmsgType, NLM_F_MULTI,
+                      msgIn->nlMsg.nlmsgSeq, msgIn->nlMsg.nlmsgPid,
+                      msgIn->genlMsg.cmd, msgIn->genlMsg.version,
+                      dpIfIndex);
     if (!ok) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+        return STATUS_INVALID_BUFFER_SIZE;
     }
 
     ok = NlMsgPutTailU32(&nlBuffer, OVS_WIN_NETDEV_ATTR_PORT_NO,
                          info->portNo);
     if (!ok) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+        return STATUS_INVALID_BUFFER_SIZE;
     }
 
     ok = NlMsgPutTailU32(&nlBuffer, OVS_WIN_NETDEV_ATTR_TYPE, info->type);
     if (!ok) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+        return STATUS_INVALID_BUFFER_SIZE;
     }
 
     ok = NlMsgPutTailString(&nlBuffer, OVS_WIN_NETDEV_ATTR_NAME,
                             info->name);
     if (!ok) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+        return STATUS_INVALID_BUFFER_SIZE;
     }
 
     ok = NlMsgPutTailUnspec(&nlBuffer, OVS_WIN_NETDEV_ATTR_MAC_ADDR,
              (PCHAR)info->macAddress, sizeof (info->macAddress));
     if (!ok) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+        return STATUS_INVALID_BUFFER_SIZE;
     }
 
     ok = NlMsgPutTailU32(&nlBuffer, OVS_WIN_NETDEV_ATTR_MTU, info->mtu);
     if (!ok) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+        return STATUS_INVALID_BUFFER_SIZE;
     }
 
     if (info->status != OVS_EVENT_CONNECT) {
@@ -1606,7 +1605,7 @@ CreateNetlinkMesgForNetdev(POVS_VPORT_EXT_INFO info,
     ok = NlMsgPutTailU32(&nlBuffer, OVS_WIN_NETDEV_ATTR_IF_FLAGS,
                          netdevFlags);
     if (!ok) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+        return STATUS_INVALID_BUFFER_SIZE;
     }
 
     /*
@@ -1631,44 +1630,6 @@ OvsWaitActivate(POVS_SWITCH_CONTEXT switchContext, ULONG sleepMicroSec)
     }
 }
 
-
-static VOID
-BuildMsgOut(POVS_MESSAGE msgIn, POVS_MESSAGE msgOut, UINT16 type,
-            UINT32 length, UINT16 flags)
-{
-    msgOut->nlMsg.nlmsgType = type;
-    msgOut->nlMsg.nlmsgFlags = flags;
-    msgOut->nlMsg.nlmsgSeq = msgIn->nlMsg.nlmsgSeq;
-    msgOut->nlMsg.nlmsgPid = msgIn->nlMsg.nlmsgPid;
-    msgOut->nlMsg.nlmsgLen = length;
-
-    msgOut->genlMsg.cmd = msgIn->genlMsg.cmd;
-    msgOut->genlMsg.version = msgIn->genlMsg.version;
-    msgOut->genlMsg.reserved = 0;
-}
-
-/*
- * XXX: should move out these functions to a Netlink.c or to a OvsMessage.c
- * or even make them inlined functions in Datapath.h. Can be done after the
- * first sprint once we have more code to refactor.
- */
-VOID
-BuildReplyMsgFromMsgIn(POVS_MESSAGE msgIn, POVS_MESSAGE msgOut, UINT16 flags)
-{
-    BuildMsgOut(msgIn, msgOut, msgIn->nlMsg.nlmsgType, sizeof(OVS_MESSAGE),
-                flags);
-}
-
-VOID
-BuildErrorMsg(POVS_MESSAGE msgIn, POVS_MESSAGE_ERROR msgOut, UINT errorCode)
-{
-    BuildMsgOut(msgIn, (POVS_MESSAGE)msgOut, NLMSG_ERROR,
-                sizeof(OVS_MESSAGE_ERROR), 0);
-
-    msgOut->errorMsg.error = errorCode;
-    msgOut->errorMsg.nlMsg = msgIn->nlMsg;
-}
-
 static NTSTATUS
 OvsCreateMsgFromVport(POVS_VPORT_ENTRY vport,
                       POVS_MESSAGE msgIn,
@@ -1679,32 +1640,31 @@ OvsCreateMsgFromVport(POVS_VPORT_ENTRY vport,
     NL_BUFFER nlBuffer;
     OVS_VPORT_FULL_STATS vportStats;
     BOOLEAN ok;
-    OVS_MESSAGE msgOut;
     PNL_MSG_HDR nlMsg;
 
     NlBufInit(&nlBuffer, outBuffer, outBufLen);
 
-    BuildReplyMsgFromMsgIn(msgIn, &msgOut, NLM_F_MULTI);
-    msgOut.ovsHdr.dp_ifindex = dpIfIndex;
-
-    ok = NlMsgPutHead(&nlBuffer, (PCHAR)&msgOut, sizeof msgOut);
+    ok = NlFillOvsMsg(&nlBuffer, msgIn->nlMsg.nlmsgType, NLM_F_MULTI,
+                      msgIn->nlMsg.nlmsgSeq, msgIn->nlMsg.nlmsgPid,
+                      msgIn->genlMsg.cmd, msgIn->genlMsg.version,
+                      dpIfIndex);
     if (!ok) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+        return STATUS_INVALID_BUFFER_SIZE;
     }
 
     ok = NlMsgPutTailU32(&nlBuffer, OVS_VPORT_ATTR_PORT_NO, vport->portNo);
     if (!ok) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+        return STATUS_INVALID_BUFFER_SIZE;
     }
 
     ok = NlMsgPutTailU32(&nlBuffer, OVS_VPORT_ATTR_TYPE, vport->ovsType);
     if (!ok) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+        return STATUS_INVALID_BUFFER_SIZE;
     }
 
     ok = NlMsgPutTailString(&nlBuffer, OVS_VPORT_ATTR_NAME, vport->ovsName);
     if (!ok) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+        return STATUS_INVALID_BUFFER_SIZE;
     }
 
     /*
@@ -1717,7 +1677,7 @@ OvsCreateMsgFromVport(POVS_VPORT_ENTRY vport,
     ok = NlMsgPutTailU32(&nlBuffer, OVS_VPORT_ATTR_UPCALL_PID,
                          vport->upcallPid);
     if (!ok) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+        return STATUS_INVALID_BUFFER_SIZE;
     }
 
     /*stats*/
@@ -1734,7 +1694,7 @@ OvsCreateMsgFromVport(POVS_VPORT_ENTRY vport,
                             (PCHAR)&vportStats,
                             sizeof(OVS_VPORT_FULL_STATS));
     if (!ok) {
-        return STATUS_INSUFFICIENT_RESOURCES;
+        return STATUS_INVALID_BUFFER_SIZE;
     }
 
     /*
@@ -1939,7 +1899,7 @@ Cleanup:
         POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
             usrParamsCtx->outputBuffer;
 
-        BuildErrorMsg(msgIn, msgError, nlError);
+        NlBuildErrorMsg(msgIn, msgError, nlError);
         *replyLen = msgError->nlMsg.nlmsgLen;
     }
 
@@ -1948,8 +1908,10 @@ Cleanup:
 
 /*
  * --------------------------------------------------------------------------
- *  Handler for the get vport command. The function handles the initial call to
- *  setup the dump state, as well as subsequent calls to continue dumping data.
+ *  Command Handler for 'OVS_VPORT_CMD_NEW'.
+ *
+ *  The function handles the initial call to setup the dump state, as well as
+ *  subsequent calls to continue dumping data.
  * --------------------------------------------------------------------------
 */
 NTSTATUS
@@ -1958,8 +1920,7 @@ OvsGetVportCmdHandler(POVS_USER_PARAMS_CONTEXT usrParamsCtx,
 {
     *replyLen = 0;
 
-    switch (usrParamsCtx->devOp)
-    {
+    switch (usrParamsCtx->devOp) {
     case OVS_WRITE_DEV_OP:
         return OvsSetupDumpStart(usrParamsCtx);
 
@@ -2171,7 +2132,7 @@ Cleanup:
             OvsFreeMemory(vport);
         }
 
-        BuildErrorMsg(msgIn, msgError, nlError);
+        NlBuildErrorMsg(msgIn, msgError, nlError);
         *replyLen = msgError->nlMsg.nlmsgLen;
     }
 
@@ -2283,7 +2244,7 @@ Cleanup:
         POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
             usrParamsCtx->outputBuffer;
 
-        BuildErrorMsg(msgIn, msgError, nlError);
+        NlBuildErrorMsg(msgIn, msgError, nlError);
         *replyLen = msgError->nlMsg.nlmsgLen;
     }
 
@@ -2367,7 +2328,7 @@ Cleanup:
         POVS_MESSAGE_ERROR msgError = (POVS_MESSAGE_ERROR)
             usrParamsCtx->outputBuffer;
 
-        BuildErrorMsg(msgIn, msgError, nlError);
+        NlBuildErrorMsg(msgIn, msgError, nlError);
         *replyLen = msgError->nlMsg.nlmsgLen;
     }
 

@@ -860,6 +860,51 @@ dpif_flow_flush(struct dpif *dpif)
     return error;
 }
 
+/* Attempts to install 'key' into the datapath, fetches it, then deletes it.
+ * Returns true if the datapath supported installing 'flow', false otherwise.
+ */
+bool
+dpif_probe_feature(struct dpif *dpif, const char *name,
+                   const struct ofpbuf *key, const ovs_u128 *ufid)
+{
+    struct dpif_flow flow;
+    struct ofpbuf reply;
+    uint64_t stub[DPIF_FLOW_BUFSIZE / 8];
+    bool enable_feature = false;
+    int error;
+
+    /* Use DPIF_FP_MODIFY to cover the case where ovs-vswitchd is killed (and
+     * restarted) at just the right time such that feature probes from the
+     * previous run are still present in the datapath. */
+    error = dpif_flow_put(dpif, DPIF_FP_CREATE | DPIF_FP_MODIFY | DPIF_FP_PROBE,
+                          ofpbuf_data(key), ofpbuf_size(key), NULL, 0, NULL, 0,
+                          ufid, NULL);
+    if (error) {
+        if (error != EINVAL) {
+            VLOG_WARN("%s: %s flow probe failed (%s)",
+                      dpif_name(dpif), name, ovs_strerror(error));
+        }
+        return false;
+    }
+
+    ofpbuf_use_stack(&reply, &stub, sizeof stub);
+    error = dpif_flow_get(dpif, ofpbuf_data(key), ofpbuf_size(key), ufid,
+                          &reply, &flow);
+    if (!error
+        && (!ufid || (flow.ufid_present && ovs_u128_equal(ufid, &flow.ufid)))) {
+        enable_feature = true;
+    }
+
+    error = dpif_flow_del(dpif, ofpbuf_data(key), ofpbuf_size(key), ufid,
+                          NULL);
+    if (error) {
+        VLOG_WARN("%s: failed to delete %s feature probe flow",
+                  dpif_name(dpif), name);
+    }
+
+    return enable_feature;
+}
+
 /* Tests whether 'dpif' supports userspace flow ids. We can skip serializing
  * some flow attributes for datapaths that support this feature.
  *
@@ -893,7 +938,6 @@ dpif_flow_get(struct dpif *dpif,
     op.u.flow_get.flow = flow;
     op.u.flow_get.flow->key = key;
     op.u.flow_get.flow->key_len = key_len;
-    op.u.flow_get.flow->ufid = *ufid;
 
     opp = &op;
     dpif_operate(dpif, &opp, 1);

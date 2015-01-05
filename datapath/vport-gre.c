@@ -304,6 +304,10 @@ static int gre_send(struct vport *vport, struct sk_buff *skb)
 		return -EINVAL;
 
 	/* Reject layer 3 packets */
+	if (unlikely(skb->mac_len == 0))
+		return -EINVAL;
+
+	/* Reject layer 3 packets */
 	/* FIXME: need to relax this... */
 /*	if (unlikely(skb->mac_len == 0))
 		return -EINVAL;*/

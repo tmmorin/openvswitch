@@ -544,6 +544,34 @@ AT_CHECK(
   [0], [expout], [experr])
 AT_CLEANUP
 
+dnl Our primary goal here is to verify OpenFlow 1.3-specific changes,
+dnl so the list of tests is short.
+AT_SETUP([OpenFlow 1.3 action translation])
+AT_KEYWORDS([ofp-actions OF1.3])
+AT_DATA([test-data], [dnl
+# actions=LOCAL
+0000 0010 fffffffe 04d2 000000000000
+
+dnl Check the Nicira extension form of "move".
+# actions=move:NXM_OF_IN_PORT[]->NXM_OF_VLAN_TCI[]
+ffff 0018 00002320 0006 0010 0000 0000 00000002 00000802
+
+dnl Check the ONF extension form of "copy_field".
+# actions=move:NXM_OF_IN_PORT[]->NXM_OF_VLAN_TCI[]
+ffff 0020 4f4e4600 0c80 0000 0010 0000 0000 0000 00000002 00000802 00000000
+
+])
+sed '/^[[#&]]/d' < test-data > input.txt
+sed -n 's/^# //p; /^$/p' < test-data > expout
+sed -n 's/^& //p' < test-data > experr
+AT_CAPTURE_FILE([input.txt])
+AT_CAPTURE_FILE([expout])
+AT_CAPTURE_FILE([experr])
+AT_CHECK(
+  [ovs-ofctl '-vPATTERN:console:%c|%p|%m' parse-actions OpenFlow13 < input.txt],
+  [0], [expout], [experr])
+AT_CLEANUP
+
 dnl Our primary goal here is to verify that OpenFlow 1.5-specific changes,
 dnl so the list of tests is short.
 AT_SETUP([OpenFlow 1.5 action translation])
@@ -553,7 +581,7 @@ AT_DATA([test-data], [dnl
 0000 0010 fffffffe 04d2 000000000000
 
 # actions=move:NXM_OF_IN_PORT[]->NXM_OF_VLAN_TCI[]
-001c 0018 0010 0000 0000 0008 00000002 00000802 00000000
+001c 0018 0010 0000 0000 0000 00000002 00000802 00000000
 
 # actions=set_field:00:00:00:00:12:34/00:00:00:00:ff:ff->eth_src
 0019 0018 8000090c 000000001234 00000000ffff 00000000
@@ -578,6 +606,21 @@ dnl Bad: Use fin_timeout action on TCP flow that has been converted to MPLS
 AT_CHECK([ovs-ofctl -O OpenFlow11 -vwarn add-flow br0 'tcp actions=push_mpls:0x8847,fin_timeout(idle_timeout=1)'],
          [1], [], [dnl
 ovs-ofctl: none of the usable flow formats (OpenFlow10,NXM) is among the allowed flow formats (OpenFlow11)
+])
+OVS_VSWITCHD_STOP
+AT_CLEANUP
+
+AT_SETUP([reg_load <-> set_field translation corner case])
+AT_KEYWORDS([ofp-actions])
+OVS_VSWITCHD_START
+dnl In OpenFlow 1.3, set_field always sets all the bits in the field,
+dnl but when we translate to NXAST_LOAD we need to only set the bits that
+dnl actually exist (e.g. mpls_label only has 20 bits) otherwise OVS rejects
+dnl the "load" action as invalid.  Check that we do this correctly.
+AT_CHECK([ovs-ofctl -O OpenFlow13 add-flow br0 mpls,actions=set_field:10-\>mpls_label])
+AT_CHECK([ovs-ofctl -O OpenFlow10 dump-flows br0 | ofctl_strip], [0], [dnl
+NXST_FLOW reply:
+ mpls actions=load:0xa->OXM_OF_MPLS_LABEL[[]]
 ])
 OVS_VSWITCHD_STOP
 AT_CLEANUP

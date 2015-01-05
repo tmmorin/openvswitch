@@ -39,7 +39,7 @@
  * Attributes should be added by caller.
  * ---------------------------------------------------------------------------
  */
-NTSTATUS
+BOOLEAN
 NlFillOvsMsg(PNL_BUFFER nlBuf, UINT16 nlmsgType,
              UINT16 nlmsgFlags, UINT32 nlmsgSeq,
              UINT32 nlmsgPid, UINT8 genlCmd,
@@ -68,7 +68,7 @@ NlFillOvsMsg(PNL_BUFFER nlBuf, UINT16 nlmsgType,
     writeOk = NlMsgPutTail(nlBuf, (PCHAR)(&msgOut),
                            sizeof (struct _OVS_MESSAGE));
 
-    return writeOk ? STATUS_SUCCESS : STATUS_INVALID_BUFFER_SIZE;
+    return writeOk;
 }
 
 /*
@@ -77,7 +77,7 @@ NlFillOvsMsg(PNL_BUFFER nlBuf, UINT16 nlmsgType,
  * input NlBuf.
  * ---------------------------------------------------------------------------
  */
-NTSTATUS
+BOOLEAN
 NlFillNlHdr(PNL_BUFFER nlBuf, UINT16 nlmsgType,
             UINT16 nlmsgFlags, UINT32 nlmsgSeq,
             UINT32 nlmsgPid)
@@ -99,7 +99,26 @@ NlFillNlHdr(PNL_BUFFER nlBuf, UINT16 nlmsgType,
     writeOk = NlMsgPutTail(nlBuf, (PCHAR)(&msgOut),
                            sizeof(struct _NL_MSG_HDR));
 
-    return writeOk ? STATUS_SUCCESS : STATUS_INVALID_BUFFER_SIZE;
+    return writeOk;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Prepare a 'OVS_MESSAGE_ERROR' message.
+ * ---------------------------------------------------------------------------
+ */
+VOID
+NlBuildErrorMsg(POVS_MESSAGE msgIn, POVS_MESSAGE_ERROR msgError, UINT errorCode)
+{
+    NL_BUFFER nlBuffer;
+
+    NlBufInit(&nlBuffer, (PCHAR)msgError, sizeof *msgError);
+    NlFillNlHdr(&nlBuffer, NLMSG_ERROR, 0,
+                msgIn->nlMsg.nlmsgSeq, msgIn->nlMsg.nlmsgPid);
+
+    msgError->errorMsg.error = errorCode;
+    msgError->errorMsg.nlMsg = msgIn->nlMsg;
+    msgError->nlMsg.nlmsgLen = sizeof(OVS_MESSAGE_ERROR);
 }
 
 /*

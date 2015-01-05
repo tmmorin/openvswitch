@@ -32,6 +32,14 @@ typedef struct _OVS_MESSAGE {
     /* Variable length nl_attrs follow. */
 } OVS_MESSAGE, *POVS_MESSAGE;
 
+/*
+ * Structure of an error message sent as a reply from kernel.
+ */
+typedef struct _OVS_MESSAGE_ERROR {
+    NL_MSG_HDR nlMsg;
+    NL_MSG_ERR errorMsg;
+} OVS_MESSAGE_ERROR, *POVS_MESSAGE_ERROR;
+
 /* Netlink attribute types. */
 typedef enum
 {
@@ -78,13 +86,16 @@ typedef struct _NL_POLICY
 #define NL_ATTR_GET_AS(NLA, TYPE) \
         (*(TYPE*) NlAttrGetUnspec(nla, sizeof(TYPE)))
 
-NTSTATUS NlFillOvsMsg(PNL_BUFFER nlBuf,
-                      UINT16 nlmsgType, UINT16 nlmsgFlags,
-                      UINT32 nlmsgSeq, UINT32 nlmsgPid,
-                      UINT8 genlCmd, UINT8 genlVer, UINT32 dpNo);
-NTSTATUS NlFillNlHdr(PNL_BUFFER nlBuf,
+BOOLEAN NlFillOvsMsg(PNL_BUFFER nlBuf,
                      UINT16 nlmsgType, UINT16 nlmsgFlags,
-                     UINT32 nlmsgSeq, UINT32 nlmsgPid);
+                     UINT32 nlmsgSeq, UINT32 nlmsgPid,
+                     UINT8 genlCmd, UINT8 genlVer, UINT32 dpNo);
+BOOLEAN NlFillNlHdr(PNL_BUFFER nlBuf,
+                    UINT16 nlmsgType, UINT16 nlmsgFlags,
+                    UINT32 nlmsgSeq, UINT32 nlmsgPid);
+
+VOID NlBuildErrorMsg(POVS_MESSAGE msgIn, POVS_MESSAGE_ERROR msgOut,
+                     UINT errorCode);
 
 /* Netlink message accessing the payload */
 PVOID NlMsgAt(const PNL_MSG_HDR nlh, UINT32 offset);

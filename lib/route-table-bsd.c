@@ -30,12 +30,14 @@
 #include <unistd.h>
 
 #include "ovs-router.h"
+#include "packets.h"
+#include "vlog.h"
 #include "util.h"
 
-static int pid;
+VLOG_DEFINE_THIS_MODULE(route_table_bsd);
 
 bool
-ovs_router_lookup(ovs_be32 ip, char name[], ovs_be32 *gw)
+route_table_fallback_lookup(ovs_be32 ip, char name[], ovs_be32 *gw)
 {
     struct {
         struct rt_msghdr rtm;
@@ -48,6 +50,8 @@ ovs_router_lookup(ovs_be32 ip, char name[], ovs_be32 *gw)
     struct sockaddr *sa;
     static int seq;
     int i, len, namelen, rtsock;
+    const pid_t pid = getpid();
+    bool got_ifp = false;
 
     rtsock = socket(PF_ROUTE, SOCK_RAW, 0);
     if (rtsock < 0)
@@ -71,8 +75,15 @@ ovs_router_lookup(ovs_be32 ip, char name[], ovs_be32 *gw)
         return false;
     }
 
+    VLOG_DBG("looking route up for " IP_FMT " pid %" PRIuMAX,
+        IP_ARGS(ip), (uintmax_t)pid);
     do {
         len = read(rtsock, (char *)&rtmsg, sizeof(rtmsg));
+        if (len > 0) {
+            VLOG_DBG("got rtmsg pid %" PRIuMAX " seq %d",
+                (uintmax_t)rtmsg.rtm.rtm_pid,
+                rtmsg.rtm.rtm_seq);
+        }
     } while (len > 0 && (rtmsg.rtm.rtm_seq != seq ||
         rtmsg.rtm.rtm_pid != pid));
 
@@ -82,6 +93,7 @@ ovs_router_lookup(ovs_be32 ip, char name[], ovs_be32 *gw)
         return false;
     }
 
+    *gw = 0;
     sa = (struct sockaddr *)(rtm + 1);
     for (i = 1; i; i <<= 1) {
         if (rtm->rtm_addrs & i) {
@@ -93,8 +105,14 @@ ovs_router_lookup(ovs_be32 ip, char name[], ovs_be32 *gw)
                     namelen = IFNAMSIZ - 1;
                 memcpy(name, ifp->sdl_data, namelen);
                 name[namelen] = '\0';
-                *gw = 0;
-                return true;
+                VLOG_DBG("got ifp %s", name);
+                got_ifp = true;
+            } else if (i == RTA_GATEWAY && sa->sa_family == AF_INET) {
+                const struct sockaddr_in *sin_dst =
+                    ALIGNED_CAST(struct sockaddr_in *, sa);
+
+                *gw = sin_dst->sin_addr.s_addr;
+                VLOG_DBG("got gateway " IP_FMT, IP_ARGS(*gw));
             }
 #if defined(__FreeBSD__)
             sa = (struct sockaddr *)((char *)sa + SA_SIZE(sa));
@@ -105,7 +123,7 @@ ovs_router_lookup(ovs_be32 ip, char name[], ovs_be32 *gw)
 #endif
         }
     }
-    return false;
+    return got_ifp;
 }
 
 uint64_t
@@ -117,7 +135,7 @@ route_table_get_change_seq(void)
 void
 route_table_init(void)
 {
-    pid = getpid();
+    ovs_router_init();
 }
 
 void
@@ -127,10 +145,5 @@ route_table_run(void)
 
 void
 route_table_wait(void)
-{
-}
-
-void
-ovs_router_init(void)
 {
 }
