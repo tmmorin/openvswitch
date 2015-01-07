@@ -702,7 +702,7 @@ recv_upcalls(struct handler *handler)
         continue;
 
 cleanup:
-        VLOG_WARN("recv_upcalls:iter 8");
+        VLOG_WARN("recv_upcalls:iter cleanup");
         upcall_uninit(upcall);
 free_dupcall:
         ofpbuf_uninit(&dupcall->packet);
