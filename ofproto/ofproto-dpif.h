@@ -40,6 +40,11 @@ struct dpif_backer;
 struct OVS_LOCKABLE rule_dpif;
 struct OVS_LOCKABLE group_dpif;
 
+/* Number of implemented OpenFlow tables. */
+enum { N_TABLES = 255 };
+enum { TBL_INTERNAL = N_TABLES - 1 };    /* Used for internal hidden rules. */
+BUILD_ASSERT_DECL(N_TABLES >= 2 && N_TABLES <= 255);
+
 /* Ofproto-dpif -- DPIF based ofproto implementation.
  *
  * Ofproto-dpif provides an ofproto implementation for those platforms which
@@ -70,6 +75,7 @@ struct OVS_LOCKABLE group_dpif;
 
 size_t ofproto_dpif_get_max_mpls_depth(const struct ofproto_dpif *);
 bool ofproto_dpif_get_enable_recirc(const struct ofproto_dpif *);
+bool ofproto_dpif_get_enable_ufid(struct dpif_backer *backer);
 
 struct rule_dpif *rule_dpif_lookup(struct ofproto_dpif *, struct flow *,
                                    struct flow_wildcards *, bool take_ref,
@@ -85,6 +91,14 @@ struct rule_dpif *rule_dpif_lookup_from_table(struct ofproto_dpif *,
                                               ofp_port_t in_port,
                                               bool may_packet_in,
                                               bool honor_table_miss);
+
+/* If 'recirc_id' is set, starts looking up from internal table for
+ * post recirculation flows or packets.  Otherwise, starts from table 0. */
+static inline uint8_t
+rule_dpif_lookup_get_init_table_id(const struct flow *flow)
+{
+    return flow->recirc_id ? TBL_INTERNAL : 0;
+}
 
 static inline void rule_dpif_ref(struct rule_dpif *);
 static inline void rule_dpif_unref(struct rule_dpif *);
@@ -121,7 +135,7 @@ bool group_dpif_lookup(struct ofproto_dpif *ofproto, uint32_t group_id,
                        struct group_dpif **group);
 
 void group_dpif_get_buckets(const struct group_dpif *group,
-                            const struct list **buckets);
+                            const struct ovs_list **buckets);
 enum ofp11_group_type group_dpif_get_type(const struct group_dpif *group);
 
 bool ofproto_has_vlan_splinters(const struct ofproto_dpif *);
@@ -203,8 +217,20 @@ struct ofport_dpif *odp_port_to_ofport(const struct dpif_backer *, odp_port_t);
  * Post recirculation data path flows are managed like other data path flows.
  * They are created on demand. Miss handling, stats collection and revalidation
  * work the same way as regular flows.
+ *
+ * If the bridge which originates the recirculation is different from the bridge
+ * that receives the post recirculation packet (e.g. when patch port is used),
+ * the packet will be processed directly by the recirculation bridge with
+ * in_port set to OFPP_NONE.  Admittedly, doing this limits the recirculation
+ * bridge from matching on in_port of post recirculation packets, and will be
+ * fixed in the near future.
+ *
+ * TODO: Always restore the correct in_port.
+ *
  */
 
+struct ofproto_dpif *ofproto_dpif_recirc_get_ofproto(const struct dpif_backer *ofproto,
+                                                     uint32_t recirc_id);
 uint32_t ofproto_dpif_alloc_recirc_id(struct ofproto_dpif *ofproto);
 void ofproto_dpif_free_recirc_id(struct ofproto_dpif *ofproto, uint32_t recirc_id);
 int ofproto_dpif_add_internal_flow(struct ofproto_dpif *,
@@ -214,12 +240,6 @@ int ofproto_dpif_add_internal_flow(struct ofproto_dpif *,
                                    struct rule **rulep);
 int ofproto_dpif_delete_internal_flow(struct ofproto_dpif *, struct match *,
                                       int priority);
-
-/* Number of implemented OpenFlow tables. */
-enum { N_TABLES = 255 };
-enum { TBL_INTERNAL = N_TABLES - 1 };    /* Used for internal hidden rules. */
-BUILD_ASSERT_DECL(N_TABLES >= 2 && N_TABLES <= 255);
-
 
 /* struct rule_dpif has struct rule as it's first member. */
 #define RULE_CAST(RULE) ((struct rule *)RULE)

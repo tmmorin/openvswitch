@@ -33,7 +33,7 @@
 #include "seq.h"
 #include "timeval.h"
 #include "util.h"
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(ofproto_dpif_monitor);
 
@@ -57,7 +57,7 @@ struct mport {
  * 'ofport_dpif'.  Note, the pointed object is not protected, so
  * users should always use the mport_find() to convert it to 'mport'. */
 struct send_soon_entry {
-    struct list list_node;            /* In send_soon. */
+    struct ovs_list list_node;        /* In send_soon. */
     const struct ofport_dpif *ofport;
 };
 
@@ -69,7 +69,7 @@ static struct heap monitor_heap;
 
 /* guarded-list for storing the mports that need to send bfd/cfm control
  * packet soon. */
-static struct guarded_list send_soon = GUARDED_LIST_INITIALIZER(&send_soon);
+static struct guarded_list send_soon = GUARDED_OVS_LIST_INITIALIZER(&send_soon);
 
 /* The monitor thread id. */
 static pthread_t monitor_tid;

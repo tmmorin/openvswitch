@@ -166,15 +166,9 @@ static void vxlan_gso(struct sk_buff *skb)
 	skb->ip_summed = CHECKSUM_NONE;
 }
 
-static int handle_offloads(struct sk_buff *skb)
+static struct sk_buff *handle_offloads(struct sk_buff *skb)
 {
-	if (skb_is_gso(skb)) {
-		OVS_GSO_CB(skb)->fix_segment = vxlan_gso;
-	} else {
-		if (skb->ip_summed != CHECKSUM_PARTIAL)
-			skb->ip_summed = CHECKSUM_NONE;
-	}
-	return 0;
+	return ovs_iptunnel_handle_offloads(skb, false, vxlan_gso);
 }
 
 int vxlan_xmit_skb(struct vxlan_sock *vs,
@@ -193,8 +187,10 @@ int vxlan_xmit_skb(struct vxlan_sock *vs,
 
 	/* Need space for new headers (invalidates iph ptr) */
 	err = skb_cow_head(skb, min_headroom);
-	if (unlikely(err))
+	if (unlikely(err)) {
+		kfree_skb(skb);
 		return err;
+	}
 
 	if (vlan_tx_tag_present(skb)) {
 		if (unlikely(!__vlan_put_tag(skb,
@@ -223,9 +219,9 @@ int vxlan_xmit_skb(struct vxlan_sock *vs,
 
 	vxlan_set_owner(vs->sock->sk, skb);
 
-	err = handle_offloads(skb);
-	if (err)
-		return err;
+	skb = handle_offloads(skb);
+	if (IS_ERR(skb))
+		return PTR_ERR(skb);
 
 	return iptunnel_xmit(vs->sock->sk, rt, skb, src, dst, IPPROTO_UDP,
 			     tos, ttl, df, false);

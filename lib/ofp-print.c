@@ -547,7 +547,7 @@ ofp_print_switch_config(struct ds *string, const struct ofp_switch_config *osc)
 
 static void print_wild(struct ds *string, const char *leader, int is_wild,
             int verbosity, const char *format, ...)
-            PRINTF_FORMAT(5, 6);
+            OVS_PRINTF_FORMAT(5, 6);
 
 static void print_wild(struct ds *string, const char *leader, int is_wild,
                        int verbosity, const char *format, ...)
@@ -2146,7 +2146,7 @@ ofp_print_bucket_id(struct ds *s, const char *label, uint32_t bucket_id,
 
 static void
 ofp_print_group(struct ds *s, uint32_t group_id, uint8_t type,
-                struct list *p_buckets, enum ofp_version ofp_version,
+                struct ovs_list *p_buckets, enum ofp_version ofp_version,
                 bool suppress_type)
 {
     struct ofputil_bucket *bucket;

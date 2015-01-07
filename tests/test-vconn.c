@@ -16,7 +16,7 @@
 
 #include <config.h>
 #undef NDEBUG
-#include "vconn.h"
+#include "openvswitch/vconn.h"
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -36,7 +36,7 @@
 #include "stream-ssl.h"
 #include "timeval.h"
 #include "util.h"
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 struct fake_pvconn {
     const char *type;

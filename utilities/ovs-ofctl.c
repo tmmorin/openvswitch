@@ -59,8 +59,8 @@
 #include "timeval.h"
 #include "unixctl.h"
 #include "util.h"
-#include "vconn.h"
-#include "vlog.h"
+#include "openvswitch/vconn.h"
+#include "openvswitch/vlog.h"
 #include "meta-flow.h"
 #include "sort.h"
 
@@ -106,7 +106,7 @@ static size_t n_criteria, allocated_criteria;
 
 static const struct command *get_all_commands(void);
 
-NO_RETURN static void usage(void);
+OVS_NO_RETURN static void usage(void);
 static void parse_options(int argc, char *argv[]);
 
 static bool recv_flow_stats_reply(struct vconn *, ovs_be32 send_xid,
@@ -395,7 +395,7 @@ ofctl_exit(struct unixctl_conn *conn, int argc OVS_UNUSED,
 }
 
 static void run(int retval, const char *message, ...)
-    PRINTF_FORMAT(2, 3);
+    OVS_PRINTF_FORMAT(2, 3);
 
 static void
 run(int retval, const char *message, ...)
@@ -581,7 +581,7 @@ dump_trivial_stats_transaction(const char *vconn_name, enum ofpraw raw)
  *
  * Destroys all of the 'requests'. */
 static void
-transact_multiple_noreply(struct vconn *vconn, struct list *requests)
+transact_multiple_noreply(struct vconn *vconn, struct ovs_list *requests)
 {
     struct ofpbuf *request, *reply;
 
@@ -606,7 +606,7 @@ transact_multiple_noreply(struct vconn *vconn, struct list *requests)
 static void
 transact_noreply(struct vconn *vconn, struct ofpbuf *request)
 {
-    struct list requests;
+    struct ovs_list requests;
 
     list_init(&requests);
     list_push_back(&requests, &request->list_node);
@@ -2554,7 +2554,7 @@ read_flows_from_switch(struct vconn *vconn,
 
 static void
 fte_make_flow_mod(const struct fte *fte, int index, uint16_t command,
-                  enum ofputil_protocol protocol, struct list *packets)
+                  enum ofputil_protocol protocol, struct ovs_list *packets)
 {
     const struct fte_version *version = fte->versions[index];
     struct ofputil_flow_mod fm;
@@ -2594,7 +2594,7 @@ ofctl_replace_flows(int argc OVS_UNUSED, char *argv[])
     enum { FILE_IDX = 0, SWITCH_IDX = 1 };
     enum ofputil_protocol usable_protocols, protocol;
     struct classifier cls;
-    struct list requests;
+    struct ovs_list requests;
     struct vconn *vconn;
     struct fte *fte;
 

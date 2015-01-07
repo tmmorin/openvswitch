@@ -41,8 +41,8 @@
 #include "shash.h"
 #include "simap.h"
 #include "timeval.h"
-#include "vconn.h"
-#include "vlog.h"
+#include "openvswitch/vconn.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(learning_switch);
 

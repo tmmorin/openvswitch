@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2013, 2014 Alexandru Copot <alex.mihai.c@gmail.com>, with support from IXIA.
  * Copyright (c) 2013, 2014 Daniel Baluta <dbaluta@ixiacom.com>
+ * Copyright (c) 2014 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,8 +35,8 @@
 #include "simap.h"
 #include "stream.h"
 #include "timeval.h"
-#include "vconn.h"
-#include "vlog.h"
+#include "openvswitch/vconn.h"
+#include "openvswitch/vlog.h"
 
 #include "bundles.h"
 
@@ -53,12 +54,12 @@ struct ofp_bundle {
     enum bundle_state state;
 
     /* List of 'struct bundle_message's */
-    struct list       msg_list;
+    struct ovs_list    msg_list;
 };
 
 struct bundle_message {
     struct ofp_header *msg;
-    struct list       node;  /* Element in 'struct ofp_bundles's msg_list */
+    struct ovs_list   node;  /* Element in 'struct ofp_bundles's msg_list */
 };
 
 static uint32_t
@@ -186,6 +187,8 @@ ofp_bundle_commit(struct ofconn *ofconn, uint32_t id, uint16_t flags)
 {
     struct hmap *bundles;
     struct ofp_bundle *bundle;
+    enum ofperr error = 0;
+    struct bundle_message *msg;
 
     bundles = ofconn_get_bundles(ofconn);
     bundle = ofp_bundle_find(bundles, id);
@@ -194,13 +197,16 @@ ofp_bundle_commit(struct ofconn *ofconn, uint32_t id, uint16_t flags)
         return OFPERR_OFPBFC_BAD_ID;
     }
     if (bundle->flags != flags) {
-        ofp_bundle_remove(ofconn, bundle);
-        return OFPERR_OFPBFC_BAD_FLAGS;
+        error = OFPERR_OFPBFC_BAD_FLAGS;
+    } else {
+        LIST_FOR_EACH (msg, node, &bundle->msg_list) {
+            /* XXX: actual commit */
+            error = OFPERR_OFPBFC_MSG_FAILED;
+        }
     }
 
-    /* XXX: actual commit */
-
-    return OFPERR_OFPBFC_MSG_UNSUP;
+    ofp_bundle_remove(ofconn, bundle);
+    return error;
 }
 
 enum ofperr
@@ -237,11 +243,12 @@ ofp_bundle_add_message(struct ofconn *ofconn, struct ofputil_bundle_add_msg *bad
 
         bundles = ofconn_get_bundles(ofconn);
         hmap_insert(bundles, &bundle->node, bundle_hash(badd->bundle_id));
-    }
-
-    if (bundle->state == BS_CLOSED) {
+    } else if (bundle->state == BS_CLOSED) {
         ofp_bundle_remove(ofconn, bundle);
         return OFPERR_OFPBFC_BUNDLE_CLOSED;
+    } else if (badd->flags != bundle->flags) {
+        ofp_bundle_remove(ofconn, bundle);
+        return OFPERR_OFPBFC_BAD_FLAGS;
     }
 
     bmsg = xmalloc(sizeof *bmsg);

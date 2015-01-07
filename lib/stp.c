@@ -28,11 +28,12 @@
 #include "byte-order.h"
 #include "connectivity.h"
 #include "ofpbuf.h"
+#include "ovs-atomic.h"
 #include "packets.h"
 #include "seq.h"
 #include "unixctl.h"
 #include "util.h"
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(stp);
 
@@ -109,7 +110,7 @@ struct stp_port {
 };
 
 struct stp {
-    struct list node;               /* Node in all_stps list. */
+    struct ovs_list node;           /* Node in all_stps list. */
 
     /* Static bridge data. */
     char *name;                     /* Human-readable name for log messages. */
@@ -150,8 +151,8 @@ struct stp {
 };
 
 static struct ovs_mutex mutex;
-static struct list all_stps__ = LIST_INITIALIZER(&all_stps__);
-static struct list *const all_stps OVS_GUARDED_BY(mutex) = &all_stps__;
+static struct ovs_list all_stps__ = OVS_LIST_INITIALIZER(&all_stps__);
+static struct ovs_list *const all_stps OVS_GUARDED_BY(mutex) = &all_stps__;
 
 #define FOR_EACH_ENABLED_PORT(PORT, STP)                        \
     for ((PORT) = stp_next_enabled_port((STP), (STP)->ports);   \

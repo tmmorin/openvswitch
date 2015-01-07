@@ -15,7 +15,7 @@
  */
 
 #include <config.h>
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -75,7 +75,7 @@ VLOG_LEVELS
 BUILD_ASSERT_DECL(LOG_LOCAL0 == (16 << 3));
 
 /* The log modules. */
-struct list vlog_modules = LIST_INITIALIZER(&vlog_modules);
+struct ovs_list vlog_modules = OVS_LIST_INITIALIZER(&vlog_modules);
 
 /* Protects the 'pattern' in all "struct facility"s, so that a race between
  * changing and reading the pattern does not cause an access to freed
@@ -113,7 +113,7 @@ static int syslog_fd OVS_GUARDED_BY(pattern_rwlock) = -1;
 static void format_log_message(const struct vlog_module *, enum vlog_level,
                                const char *pattern,
                                const char *message, va_list, struct ds *)
-    PRINTF_FORMAT(4, 0);
+    OVS_PRINTF_FORMAT(4, 0);
 
 /* Searches the 'n_names' in 'names'.  Returns the index of a match for
  * 'target', or 'n_names' if no name matches. */
@@ -168,6 +168,11 @@ vlog_get_facility_val(const char *name)
         }
     }
     return i;
+}
+
+void vlog_insert_module(struct ovs_list *vlog)
+{
+    list_insert(&vlog_modules, vlog);
 }
 
 /* Returns the name for logging module 'module'. */

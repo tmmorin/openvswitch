@@ -64,7 +64,7 @@ struct pkt_metadata {
     uint32_t pkt_mark;          /* Packet mark. */
     union flow_in_port in_port; /* Input port. */
     uint32_t base_layer;        /* Packet starts at this layer */
-    ovs_be16 protocol;          /* Protocol for L3 packets */
+    ovs_be16 packet_ethertype;  /* Ethertype of the packet */
 };
 
 #define PKT_METADATA_INITIALIZER(PORT) \

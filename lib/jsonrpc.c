@@ -31,7 +31,7 @@
 #include "reconnect.h"
 #include "stream.h"
 #include "timeval.h"
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(jsonrpc);
 
@@ -46,7 +46,7 @@ struct jsonrpc {
     struct json_parser *parser;
 
     /* Output. */
-    struct list output;         /* Contains "struct ofpbuf"s. */
+    struct ovs_list output;     /* Contains "struct ofpbuf"s. */
     size_t output_count;        /* Number of elements in "output". */
     size_t backlog;
 };

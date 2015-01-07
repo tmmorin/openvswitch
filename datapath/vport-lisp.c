@@ -265,7 +265,6 @@ static int lisp_rcv(struct sock *sk, struct sk_buff *skb)
 	default:
 		goto error;
 	}
-
 	ovs_vport_receive(vport_from_priv(lisp_port), skb, &tun_info, true);
 	goto out;
 
@@ -394,33 +393,35 @@ static void lisp_fix_segment(struct sk_buff *skb)
 	udph->len = htons(skb->len - skb_transport_offset(skb));
 }
 
-static int handle_offloads(struct sk_buff *skb)
+static struct sk_buff *handle_offloads(struct sk_buff *skb)
 {
-	if (skb_is_gso(skb))
-		OVS_GSO_CB(skb)->fix_segment = lisp_fix_segment;
-	else if (skb->ip_summed != CHECKSUM_PARTIAL)
-		skb->ip_summed = CHECKSUM_NONE;
-	return 0;
+	return ovs_iptunnel_handle_offloads(skb, false, lisp_fix_segment);
 }
 #else
-static int handle_offloads(struct sk_buff *skb)
+static struct sk_buff *handle_offloads(struct sk_buff *skb)
 {
-	if (skb->encapsulation && skb_is_gso(skb)) {
-		kfree_skb(skb);
-		return -ENOSYS;
-	}
+	int err = 0;
 
 	if (skb_is_gso(skb)) {
-		int err = skb_unclone(skb, GFP_ATOMIC);
+
+		if (skb_is_encapsulated(skb)) {
+			err = -ENOSYS;
+			goto error;
+		}
+
+		err = skb_unclone(skb, GFP_ATOMIC);
 		if (unlikely(err))
-			return err;
+			goto error;
 
 		skb_shinfo(skb)->gso_type |= SKB_GSO_UDP_TUNNEL;
 	} else if (skb->ip_summed != CHECKSUM_PARTIAL)
 		skb->ip_summed = CHECKSUM_NONE;
 
 	skb->encapsulation = 1;
-	return 0;
+	return skb;
+error:
+	kfree_skb(skb);
+	return ERR_PTR(err);
 }
 #endif
 
@@ -444,9 +445,16 @@ static int lisp_send(struct vport *vport, struct sk_buff *skb)
 	    skb->protocol != htons(ETH_P_IPV6)))
 		return -EINVAL;
 
-	if (unlikely(!OVS_CB(skb)->egress_tun_info))
 		return -EINVAL;
 
+	/* LISP only encapsulates IPv4 and IPv6 packets */
+	if (unlikely(skb->protocol != htons(ETH_P_IP) &&
+	    skb->protocol != htons(ETH_P_IPV6)))
+		return -EINVAL;
+
+	if (unlikely(!OVS_CB(skb)->egress_tun_info)) {
+		err = -EINVAL;
+		goto error;
 	tun_key = &OVS_CB(skb)->egress_tun_info->tunnel;
 
 	/* Route lookup */
@@ -482,9 +490,12 @@ static int lisp_send(struct vport *vport, struct sk_buff *skb)
 	lisp_build_header(vport, skb);
 
 	/* Offloading */
-	err = handle_offloads(skb);
-	if (err)
+	skb = handle_offloads(skb);
+	if (IS_ERR(skb)) {
+		err = PTR_ERR(skb);
+		skb = NULL;
 		goto err_free_rt;
+	}
 
 	skb->ignore_df = 1;
 
@@ -499,6 +510,7 @@ static int lisp_send(struct vport *vport, struct sk_buff *skb)
 err_free_rt:
 	ip_rt_put(rt);
 error:
+	kfree_skb(skb);
 	return err;
 }
 

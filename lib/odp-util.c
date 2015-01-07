@@ -37,7 +37,7 @@
 #include "timeval.h"
 #include "unaligned.h"
 #include "util.h"
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(odp_util);
 
@@ -129,6 +129,7 @@ ovs_key_attr_to_string(enum ovs_key_attr attr, char *namebuf, size_t bufsize)
     case OVS_KEY_ATTR_MPLS: return "mpls";
     case OVS_KEY_ATTR_DP_HASH: return "dp_hash";
     case OVS_KEY_ATTR_RECIRC_ID: return "recirc_id";
+    case OVS_KEY_ATTR_PACKET_ETHERTYPE: return "pkt_eth";
 
     case __OVS_KEY_ATTR_MAX:
     default:
@@ -1245,6 +1246,7 @@ odp_flow_key_attr_len(uint16_t type)
     case OVS_KEY_ATTR_ICMPV6: return sizeof(struct ovs_key_icmpv6);
     case OVS_KEY_ATTR_ARP: return sizeof(struct ovs_key_arp);
     case OVS_KEY_ATTR_ND: return sizeof(struct ovs_key_nd);
+    case OVS_KEY_ATTR_PACKET_ETHERTYPE: return 2;
 
     case OVS_KEY_ATTR_UNSPEC:
     case __OVS_KEY_ATTR_MAX:
@@ -1899,6 +1901,7 @@ format_odp_key_attr(const struct nlattr *a, const struct nlattr *ma,
         break;
     }
     case OVS_KEY_ATTR_ETHERTYPE:
+    case OVS_KEY_ATTR_PACKET_ETHERTYPE:
         ds_put_format(ds, "0x%04"PRIx16, ntohs(nl_attr_get_be16(a)));
         if (!is_exact) {
             ds_put_format(ds, "/0x%04"PRIx16, ntohs(nl_attr_get_be16(ma)));
@@ -2042,11 +2045,42 @@ generate_all_wildcard_mask(struct ofpbuf *ofp, const struct nlattr *key)
     return ofpbuf_base(ofp);
 }
 
+int
+odp_ufid_from_string(const char *s_, ovs_u128 *ufid)
+{
+    const char *s = s_;
+
+    if (ovs_scan(s, "ufid:")) {
+        size_t n;
+
+        s += 5;
+        if (ovs_scan(s, "0x")) {
+            s += 2;
+        }
+
+        n = strspn(s, "0123456789abcdefABCDEF");
+        if (n != 32) {
+            return -EINVAL;
+        }
+
+        if (!ovs_scan(s, "%16"SCNx64"%16"SCNx64, &ufid->u64.hi,
+                      &ufid->u64.lo)) {
+            return -EINVAL;
+        }
+        s += n;
+        s += strspn(s, delimiters);
+
+        return s - s_;
+    }
+
+    return 0;
+}
+
 void
 odp_format_ufid(const ovs_u128 *ufid, struct ds *ds)
 {
-    ds_put_format(ds, "ufid:%016"PRIx64"%016"PRIx64, ufid->u64.lo,
-                  ufid->u64.hi);
+    ds_put_format(ds, "ufid:%016"PRIx64"%016"PRIx64, ufid->u64.hi,
+                  ufid->u64.lo);
 }
 
 /* Appends to 'ds' a string representation of the 'key_len' bytes of
@@ -3076,8 +3110,6 @@ odp_flow_key_from_mask(struct ofpbuf *buf, const struct flow *mask,
 void
 odp_key_from_pkt_metadata(struct ofpbuf *buf, const struct pkt_metadata *md)
 {
-    struct ovs_key_ethernet *eth_key;
-
     nl_msg_put_u32(buf, OVS_KEY_ATTR_PRIORITY, md->skb_priority);
 
     if (md->tunnel.ip_dst) {
@@ -3092,11 +3124,10 @@ odp_key_from_pkt_metadata(struct ofpbuf *buf, const struct pkt_metadata *md)
         nl_msg_put_odp_port(buf, OVS_KEY_ATTR_IN_PORT, md->in_port.odp_port);
     }
 
-    if (md->base_layer == LAYER_2) {
-        nl_msg_put_unspec_uninit(buf, OVS_KEY_ATTR_ETHERNET,
-                                 sizeof(struct ovs_key_ethernet));
+    if (md->base_layer == LAYER_3) {
+        nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, md->packet_ethertype);
     } else {
-        nl_msg_put_be16(buf, OVS_KEY_ATTR_ETHERTYPE, md->protocol);
+        nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, htons(0));
     }
 }
 
@@ -3110,7 +3141,7 @@ odp_key_to_pkt_metadata(const struct nlattr *key, size_t key_len,
     uint32_t wanted_attrs = 1u << OVS_KEY_ATTR_PRIORITY |
         1u << OVS_KEY_ATTR_SKB_MARK | 1u << OVS_KEY_ATTR_TUNNEL |
         1u << OVS_KEY_ATTR_IN_PORT | 1u << OVS_KEY_ATTR_ETHERNET |
-        1u << OVS_KEY_ATTR_ETHERTYPE;
+        1u << OVS_KEY_ATTR_IPV4 | 1u << OVS_KEY_ATTR_IPV6;
 
     *md = PKT_METADATA_INITIALIZER(ODPP_NONE);
 
@@ -3161,9 +3192,13 @@ odp_key_to_pkt_metadata(const struct nlattr *key, size_t key_len,
             md->base_layer = LAYER_2;
             wanted_attrs &= ~(1u << OVS_KEY_ATTR_ETHERNET);
             break;
-        case OVS_KEY_ATTR_ETHERTYPE:
-            md->protocol = nl_attr_get_be16(nla);
-            wanted_attrs &= ~(1u << OVS_KEY_ATTR_ETHERTYPE);
+        case OVS_KEY_ATTR_IPV4:
+            md->packet_ethertype = htons(ETH_TYPE_IP);
+            wanted_attrs &= ~(1u << OVS_KEY_ATTR_IPV4);
+            break;
+        case OVS_KEY_ATTR_IPV6:
+            md->packet_ethertype = htons(ETH_TYPE_IPV6);
+            wanted_attrs &= ~(1u << OVS_KEY_ATTR_IPV6);
             break;
         default:
             break;

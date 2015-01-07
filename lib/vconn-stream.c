@@ -29,8 +29,8 @@
 #include "stream.h"
 #include "util.h"
 #include "vconn-provider.h"
-#include "vconn.h"
-#include "vlog.h"
+#include "openvswitch/vconn.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(vconn_stream);
 

@@ -47,7 +47,7 @@
 #include "tnl-ports.h"
 #include "util.h"
 #include "valgrind.h"
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(dpif);
 
@@ -878,7 +878,7 @@ dpif_probe_feature(struct dpif *dpif, const char *name,
      * previous run are still present in the datapath. */
     error = dpif_flow_put(dpif, DPIF_FP_CREATE | DPIF_FP_MODIFY | DPIF_FP_PROBE,
                           ofpbuf_data(key), ofpbuf_size(key), NULL, 0, NULL, 0,
-                          ufid, NULL);
+                          ufid, PMD_ID_NULL, NULL);
     if (error) {
         if (error != EINVAL) {
             VLOG_WARN("%s: %s flow probe failed (%s)",
@@ -889,14 +889,14 @@ dpif_probe_feature(struct dpif *dpif, const char *name,
 
     ofpbuf_use_stack(&reply, &stub, sizeof stub);
     error = dpif_flow_get(dpif, ofpbuf_data(key), ofpbuf_size(key), ufid,
-                          &reply, &flow);
+                          PMD_ID_NULL, &reply, &flow);
     if (!error
         && (!ufid || (flow.ufid_present && ovs_u128_equal(ufid, &flow.ufid)))) {
         enable_feature = true;
     }
 
     error = dpif_flow_del(dpif, ofpbuf_data(key), ofpbuf_size(key), ufid,
-                          NULL);
+                          PMD_ID_NULL, NULL);
     if (error) {
         VLOG_WARN("%s: failed to delete %s feature probe flow",
                   dpif_name(dpif), name);
@@ -905,25 +905,11 @@ dpif_probe_feature(struct dpif *dpif, const char *name,
     return enable_feature;
 }
 
-/* Tests whether 'dpif' supports userspace flow ids. We can skip serializing
- * some flow attributes for datapaths that support this feature.
- *
- * Returns true if 'dpif' supports UFID for flow operations.
- * Returns false if  'dpif' does not support UFID. */
-bool
-dpif_get_enable_ufid(struct dpif *dpif)
-{
-    if (dpif->dpif_class->get_ufid_support) {
-        return dpif->dpif_class->get_ufid_support(dpif);
-    }
-    return false;
-}
-
 /* A dpif_operate() wrapper for performing a single DPIF_OP_FLOW_GET. */
 int
 dpif_flow_get(struct dpif *dpif,
               const struct nlattr *key, size_t key_len, const ovs_u128 *ufid,
-              struct ofpbuf *buf, struct dpif_flow *flow)
+              const int pmd_id, struct ofpbuf *buf, struct dpif_flow *flow)
 {
     struct dpif_op *opp;
     struct dpif_op op;
@@ -932,6 +918,7 @@ dpif_flow_get(struct dpif *dpif,
     op.u.flow_get.key = key;
     op.u.flow_get.key_len = key_len;
     op.u.flow_get.ufid = ufid;
+    op.u.flow_get.pmd_id = pmd_id;
     op.u.flow_get.buffer = buf;
 
     memset(flow, 0, sizeof *flow);
@@ -951,7 +938,8 @@ dpif_flow_put(struct dpif *dpif, enum dpif_flow_put_flags flags,
               const struct nlattr *key, size_t key_len,
               const struct nlattr *mask, size_t mask_len,
               const struct nlattr *actions, size_t actions_len,
-              const ovs_u128 *ufid, struct dpif_flow_stats *stats)
+              const ovs_u128 *ufid, const int pmd_id,
+              struct dpif_flow_stats *stats)
 {
     struct dpif_op *opp;
     struct dpif_op op;
@@ -965,6 +953,7 @@ dpif_flow_put(struct dpif *dpif, enum dpif_flow_put_flags flags,
     op.u.flow_put.actions = actions;
     op.u.flow_put.actions_len = actions_len;
     op.u.flow_put.ufid = ufid;
+    op.u.flow_put.pmd_id = pmd_id;
     op.u.flow_put.stats = stats;
 
     opp = &op;
@@ -977,7 +966,7 @@ dpif_flow_put(struct dpif *dpif, enum dpif_flow_put_flags flags,
 int
 dpif_flow_del(struct dpif *dpif,
               const struct nlattr *key, size_t key_len, const ovs_u128 *ufid,
-              struct dpif_flow_stats *stats)
+              const int pmd_id, struct dpif_flow_stats *stats)
 {
     struct dpif_op *opp;
     struct dpif_op op;
@@ -986,7 +975,9 @@ dpif_flow_del(struct dpif *dpif,
     op.u.flow_del.key = key;
     op.u.flow_del.key_len = key_len;
     op.u.flow_del.ufid = ufid;
+    op.u.flow_del.pmd_id = pmd_id;
     op.u.flow_del.stats = stats;
+    op.u.flow_del.terse = false;
 
     opp = &op;
     dpif_operate(dpif, &opp, 1);

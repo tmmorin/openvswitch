@@ -42,18 +42,34 @@ delete_netns_link () {
     rm -f /var/run/netns/"$PID"
 }
 
+get_port_for_container_interface () {
+    CONTAINER="$1"
+    INTERFACE="$2"
+
+    PORT=`ovs_vsctl --data=bare --no-heading --columns=name find interface \
+             external_ids:container_id="$CONTAINER"  \
+             external_ids:container_iface="$INTERFACE"`
+    if [ -z "$PORT" ]; then
+        echo >&2 "$UTIL: Failed to find any attached port" \
+                 "for CONTAINER=$CONTAINER and INTERFACE=$INTERFACE"
+    fi
+    echo "$PORT"
+}
+
 add_port () {
     BRIDGE="$1"
     INTERFACE="$2"
     CONTAINER="$3"
     ADDRESS="$4"
+    GATEWAY="$5"
 
     if [ "$#" -lt 3 ]; then
         usage
         exit 1
     fi
 
-    if ovs_vsctl --may-exist add-br "$BRIDGE"; then :; else
+    if ovs_vsctl br-exists "$BRIDGE" || \
+        ovs_vsctl add-br "$BRIDGE"; then :; else
         echo >&2 "$UTIL: Failed to create bridge $BRIDGE"
         exit 1
     fi
@@ -90,6 +106,10 @@ add_port () {
     if [ -n "$ADDRESS" ]; then
         ip netns exec "$PID" ip addr add "$ADDRESS" dev "$INTERFACE"
     fi
+
+    if [ -n "$GATEWAY" ]; then
+        ip netns exec "$PID" ip route add default via "$GATEWAY"
+    fi
 }
 
 del_port () {
@@ -102,12 +122,8 @@ del_port () {
         exit 1
     fi
 
-    PORT=`ovs_vsctl --data=bare --no-heading --columns=name find interface \
-             external_ids:container_id="$CONTAINER"  \
-             external_ids:container_iface="$INTERFACE"`
+    PORT=`get_port_for_container_interface "$CONTAINER" "$INTERFACE"`
     if [ -z "$PORT" ]; then
-        echo >&2 "$UTIL: Failed to find any attached port in $BRIDGE" \
-                 "for CONTAINER=$CONTAINER and INTERFACE=$INTERFACE"
         exit 1
     fi
 
@@ -136,18 +152,38 @@ del_ports () {
     done
 }
 
+set_vlan () {
+    BRIDGE="$1"
+    INTERFACE="$2"
+    CONTAINER_ID="$3"
+    VLAN="$4"
+
+    if [ "$#" -lt 4 ]; then
+        usage
+        exit 1
+    fi
+
+    PORT=`get_port_for_container_interface "$CONTAINER_ID" "$INTERFACE"`
+    if [ -z "$PORT" ]; then
+        exit 1
+    fi
+    ovs_vsctl set port "$PORT" tag="$VLAN"
+}
+
 usage() {
     cat << EOF
 ${UTIL}: Performs integration of Open vSwitch with Docker.
 usage: ${UTIL} COMMAND
 
 Commands:
-  add-port BRIDGE INTERFACE CONTAINER [ADDRESS]
+  add-port BRIDGE INTERFACE CONTAINER [ADDRESS [GATEWAY]]
                     Adds INTERFACE inside CONTAINER and connects it as a port
                     in Open vSwitch BRIDGE. Optionally, sets ADDRESS on
                     INTERFACE. ADDRESS can include a '/' to represent network
-                    prefix length. e.g.:
-                    ${UTIL} add-port br-int eth1 c474a0e2830e 192.168.1.2/24
+                    prefix length. Along with ADDRESS, optionally set the
+                    default gateway for the container. e.g.:
+                    ${UTIL} add-port br-int eth1 c474a0e2830e 192.168.1.2/24 \
+                        192.168.1.1
   del-port BRIDGE INTERFACE CONTAINER
                     Deletes INTERFACE inside CONTAINER and removes its
                     connection to Open vSwitch BRIDGE. e.g.:
@@ -155,6 +191,10 @@ Commands:
   del-ports BRIDGE CONTAINER
                     Removes all Open vSwitch interfaces from CONTAINER. e.g.:
                     ${UTIL} del-ports br-int c474a0e2830e
+  set-vlan BRIDGE INTERFACE CONTAINER VLAN
+                    Configures the INTERFACE of CONTAINER attached to BRIDGE
+                    to become an access port of VLAN. e.g.:
+                    ${UTIL} set-vlan br-int eth1 c474a0e2830e 5
 Options:
   -h, --help        display this help message.
 EOF
@@ -188,6 +228,11 @@ case $1 in
     "del-ports")
         shift
         del_ports "$@"
+        exit 0
+        ;;
+    "set-vlan")
+        shift
+        set_vlan "$@"
         exit 0
         ;;
     -h | --help)

@@ -10,7 +10,7 @@
 #include "ofpbuf.h"
 #include "ovstest.h"
 #include "packets.h"
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 #define MAX_PORTS 10
 
@@ -335,9 +335,9 @@ simulate(struct test_case *tc, int granularity)
     }
 }
 
-NO_RETURN static void
+OVS_NO_RETURN static void
 err(const char *message, ...)
-    PRINTF_FORMAT(1, 2);
+    OVS_PRINTF_FORMAT(1, 2);
 
 static void
 err(const char *message, ...)
@@ -355,7 +355,7 @@ err(const char *message, ...)
 
 static void
 warn(const char *message, ...)
-    PRINTF_FORMAT(1, 2);
+    OVS_PRINTF_FORMAT(1, 2);
 
 static void
 warn(const char *message, ...)

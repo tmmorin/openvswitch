@@ -29,8 +29,8 @@
 #include "sat-math.h"
 #include "timeval.h"
 #include "util.h"
-#include "vconn.h"
-#include "vlog.h"
+#include "openvswitch/vconn.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(rconn);
 
@@ -95,7 +95,7 @@ struct rconn {
     char *target;               /* vconn name, passed to vconn_open(). */
     bool reliable;
 
-    struct list txq;            /* Contains "struct ofpbuf"s. */
+    struct ovs_list txq;        /* Contains "struct ofpbuf"s. */
 
     int backoff;
     int max_backoff;
@@ -1389,8 +1389,6 @@ is_admitted_msg(const struct ofpbuf *b)
     case OFPTYPE_GROUP_FEATURES_STATS_REPLY:
     case OFPTYPE_TABLE_FEATURES_STATS_REQUEST:
     case OFPTYPE_TABLE_FEATURES_STATS_REPLY:
-    case OFPTYPE_BUNDLE_CONTROL:
-    case OFPTYPE_BUNDLE_ADD_MESSAGE:
         return false;
 
     case OFPTYPE_PACKET_IN:
@@ -1438,6 +1436,8 @@ is_admitted_msg(const struct ofpbuf *b)
     case OFPTYPE_FLOW_MONITOR_CANCEL:
     case OFPTYPE_FLOW_MONITOR_PAUSED:
     case OFPTYPE_FLOW_MONITOR_RESUMED:
+    case OFPTYPE_BUNDLE_CONTROL:
+    case OFPTYPE_BUNDLE_ADD_MESSAGE:
     default:
         return true;
     }

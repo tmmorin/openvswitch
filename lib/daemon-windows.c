@@ -19,8 +19,9 @@
 #include "daemon-private.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include "ovs-thread.h"
 #include "poll-loop.h"
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(daemon_windows);
 

@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include "compiler.h"
 #include "hash.h"
+#include "list.h"
 #include "netdev-dpdk.h"
 #include "ovs-rcu.h"
 #include "poll-loop.h"
@@ -38,7 +39,7 @@
  * cut-and-paste.  Since "sparse" is just a checker, not a compiler, it
  * doesn't matter that we don't define them. */
 #else
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(ovs_thread);
 
@@ -591,7 +592,7 @@ count_cpu_cores(void)
 
 /* A piece of thread-specific data. */
 struct ovsthread_key {
-    struct list list_node;      /* In 'inuse_keys' or 'free_keys'. */
+    struct ovs_list list_node;  /* In 'inuse_keys' or 'free_keys'. */
     void (*destructor)(void *); /* Called at thread exit. */
 
     /* Indexes into the per-thread array in struct ovsthread_key_slots.
@@ -601,7 +602,7 @@ struct ovsthread_key {
 
 /* Per-thread data structure. */
 struct ovsthread_key_slots {
-    struct list list_node;      /* In 'slots_list'. */
+    struct ovs_list list_node;  /* In 'slots_list'. */
     void **p1[L1_SIZE];
 };
 
@@ -620,15 +621,15 @@ static struct ovs_mutex key_mutex = OVS_MUTEX_INITIALIZER;
  *
  * Together, 'inuse_keys' and 'free_keys' hold an ovsthread_key for every index
  * from 0 to n_keys - 1, inclusive. */
-static struct list inuse_keys OVS_GUARDED_BY(key_mutex)
-    = LIST_INITIALIZER(&inuse_keys);
-static struct list free_keys OVS_GUARDED_BY(key_mutex)
-    = LIST_INITIALIZER(&free_keys);
+static struct ovs_list inuse_keys OVS_GUARDED_BY(key_mutex)
+    = OVS_LIST_INITIALIZER(&inuse_keys);
+static struct ovs_list free_keys OVS_GUARDED_BY(key_mutex)
+    = OVS_LIST_INITIALIZER(&free_keys);
 static unsigned int n_keys OVS_GUARDED_BY(key_mutex);
 
 /* All existing struct ovsthread_key_slots. */
-static struct list slots_list OVS_GUARDED_BY(key_mutex)
-    = LIST_INITIALIZER(&slots_list);
+static struct ovs_list slots_list OVS_GUARDED_BY(key_mutex)
+    = OVS_LIST_INITIALIZER(&slots_list);
 
 static void *
 clear_slot(struct ovsthread_key_slots *slots, unsigned int index)

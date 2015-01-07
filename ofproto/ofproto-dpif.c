@@ -59,6 +59,7 @@
 #include "ofproto-dpif-upcall.h"
 #include "ofproto-dpif-xlate.h"
 #include "poll-loop.h"
+#include "ovs-rcu.h"
 #include "ovs-router.h"
 #include "seq.h"
 #include "simap.h"
@@ -68,7 +69,7 @@
 #include "unaligned.h"
 #include "unixctl.h"
 #include "vlan-bitmap.h"
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(ofproto_dpif);
 
@@ -121,7 +122,7 @@ struct ofbundle {
     char *name;                 /* Identifier for log messages. */
 
     /* Configuration. */
-    struct list ports;          /* Contains "struct ofport"s. */
+    struct ovs_list ports;      /* Contains "struct ofport"s. */
     enum port_vlan_mode vlan_mode; /* VLAN mode */
     int vlan;                   /* -1=trunk port, else a 12-bit VLAN ID. */
     unsigned long *trunks;      /* Bitmap of trunked VLANs, if 'vlan' == -1.
@@ -158,7 +159,7 @@ struct ofport_dpif {
 
     odp_port_t odp_port;
     struct ofbundle *bundle;    /* Bundle that contains this port, if any. */
-    struct list bundle_node;    /* In struct ofbundle's "ports" list. */
+    struct ovs_list bundle_node;/* In struct ofbundle's "ports" list. */
     struct cfm *cfm;            /* Connectivity Fault Management, if any. */
     struct bfd *bfd;            /* BFD, if any. */
     bool may_enable;            /* May be enabled in bonds. */
@@ -251,6 +252,13 @@ COVERAGE_DEFINE(rev_flow_table);
 COVERAGE_DEFINE(rev_mac_learning);
 COVERAGE_DEFINE(rev_mcast_snooping);
 
+/* Stores mapping between 'recirc_id' and 'ofproto-dpif'. */
+struct dpif_backer_recirc_node {
+    struct cmap_node cmap_node;
+    struct ofproto_dpif *ofproto;
+    uint32_t recirc_id;
+};
+
 /* All datapaths of a given type share a single dpif backer instance. */
 struct dpif_backer {
     char *type;
@@ -269,7 +277,12 @@ struct dpif_backer {
 
     /* Recirculation. */
     struct recirc_id_pool *rid_pool;       /* Recirculation ID pool. */
+    struct cmap recirc_map;         /* Map of 'recirc_id's to 'ofproto's. */
+    struct ovs_mutex recirc_mutex;  /* Protects 'recirc_map'. */
     bool enable_recirc;   /* True if the datapath supports recirculation */
+
+    /* True if the datapath supports unique flow identifiers */
+    bool enable_ufid;
 
     /* True if the datapath supports variable-length
      * OVS_USERSPACE_ATTR_USERDATA in OVS_ACTION_ATTR_USERSPACE actions.
@@ -371,6 +384,12 @@ bool
 ofproto_dpif_get_enable_recirc(const struct ofproto_dpif *ofproto)
 {
     return ofproto->backer->enable_recirc;
+}
+
+bool
+ofproto_dpif_get_enable_ufid(struct dpif_backer *backer)
+{
+    return backer->enable_ufid;
 }
 
 static struct ofport_dpif *get_ofp_port(const struct ofproto_dpif *ofproto,
@@ -835,6 +854,27 @@ dealloc(struct ofproto *ofproto_)
     free(ofproto);
 }
 
+/* Called when 'ofproto' is destructed.  Checks for and clears any
+ * recirc_id leak. */
+static void
+dpif_backer_recirc_clear_ofproto(struct dpif_backer *backer,
+                                 struct ofproto_dpif *ofproto)
+{
+    struct dpif_backer_recirc_node *node;
+
+    ovs_mutex_lock(&backer->recirc_mutex);
+    CMAP_FOR_EACH (node, cmap_node, &backer->recirc_map) {
+        if (node->ofproto == ofproto) {
+            VLOG_ERR("recirc_id %"PRIu32", not freed when ofproto (%s) "
+                     "is destructed", node->recirc_id, ofproto->up.name);
+            cmap_remove(&backer->recirc_map, &node->cmap_node,
+                        node->recirc_id);
+            ovsrcu_postpone(free, node);
+        }
+    }
+    ovs_mutex_unlock(&backer->recirc_mutex);
+}
+
 static void
 close_dpif_backer(struct dpif_backer *backer)
 {
@@ -851,6 +891,8 @@ close_dpif_backer(struct dpif_backer *backer)
     hmap_destroy(&backer->odp_to_ofport_map);
     shash_find_and_delete(&all_dpif_backers, backer->type);
     recirc_id_pool_destroy(backer->rid_pool);
+    cmap_destroy(&backer->recirc_map);
+    ovs_mutex_destroy(&backer->recirc_mutex);
     free(backer->type);
     free(backer->dp_version_string);
     dpif_close(backer->dpif);
@@ -859,13 +901,14 @@ close_dpif_backer(struct dpif_backer *backer)
 
 /* Datapath port slated for removal from datapath. */
 struct odp_garbage {
-    struct list list_node;
+    struct ovs_list list_node;
     odp_port_t odp_port;
 };
 
 static bool check_variable_length_userdata(struct dpif_backer *backer);
 static size_t check_max_mpls_depth(struct dpif_backer *backer);
 static bool check_recirc(struct dpif_backer *backer);
+static bool check_ufid(struct dpif_backer *backer);
 static bool check_masked_set_action(struct dpif_backer *backer);
 
 static int
@@ -875,7 +918,7 @@ open_dpif_backer(const char *type, struct dpif_backer **backerp)
     struct dpif_port_dump port_dump;
     struct dpif_port port;
     struct shash_node *node;
-    struct list garbage_list;
+    struct ovs_list garbage_list;
     struct odp_garbage *garbage, *next;
 
     struct sset names;
@@ -963,7 +1006,10 @@ open_dpif_backer(const char *type, struct dpif_backer **backerp)
     backer->enable_recirc = check_recirc(backer);
     backer->max_mpls_depth = check_max_mpls_depth(backer);
     backer->masked_set_action = check_masked_set_action(backer);
+    backer->enable_ufid = check_ufid(backer);
     backer->rid_pool = recirc_id_pool_create();
+    ovs_mutex_init(&backer->recirc_mutex);
+    cmap_init(&backer->recirc_map);
 
     backer->enable_tnl_push_pop = dpif_supports_tnl_push_pop(backer->dpif);
     atomic_count_init(&backer->tnl_count, 0);
@@ -1029,6 +1075,39 @@ check_recirc(struct dpif_backer *backer)
     }
 
     return enable_recirc;
+}
+
+/* Tests whether 'dpif' supports userspace flow ids. We can skip serializing
+ * some flow attributes for datapaths that support this feature.
+ *
+ * Returns true if 'dpif' supports UFID for flow operations.
+ * Returns false if  'dpif' does not support UFID. */
+static bool
+check_ufid(struct dpif_backer *backer)
+{
+    struct flow flow;
+    struct odputil_keybuf keybuf;
+    struct ofpbuf key;
+    ovs_u128 ufid;
+    bool enable_ufid;
+
+    memset(&flow, 0, sizeof flow);
+    flow.dl_type = htons(0x1234);
+
+    ofpbuf_use_stack(&key, &keybuf, sizeof keybuf);
+    odp_flow_key_from_flow(&key, &flow, NULL, 0, true);
+    dpif_flow_hash(backer->dpif, ofpbuf_data(&key), ofpbuf_size(&key), &ufid);
+
+    enable_ufid = dpif_probe_feature(backer->dpif, "UFID", &key, &ufid);
+
+    if (enable_ufid) {
+        VLOG_INFO("%s: Datapath supports userspace flow ids",
+                  dpif_name(backer->dpif));
+    } else {
+        VLOG_INFO("%s: Datapath does not support userspace flow ids",
+                  dpif_name(backer->dpif));
+    }
+    return enable_ufid;
 }
 
 /* Tests whether 'backer''s datapath supports variable-length
@@ -1317,29 +1396,28 @@ add_internal_flows(struct ofproto_dpif *ofproto)
         return error;
     }
 
-    /* Continue non-recirculation rule lookups from table 0.
+    /* Drop any run away non-recirc rule lookups. Recirc_id has to be
+     * zero when reaching this rule.
      *
-     * (priority=2), recirc=0, actions=resubmit(, 0)
+     * (priority=2), recirc_id=0, actions=drop
      */
-    resubmit = ofpact_put_RESUBMIT(&ofpacts);
-    resubmit->in_port = OFPP_IN_PORT;
-    resubmit->table_id = 0;
-
+    ofpbuf_clear(&ofpacts);
     match_init_catchall(&match);
     match_set_recirc_id(&match, 0);
-
     error = ofproto_dpif_add_internal_flow(ofproto, &match, 2, 0, &ofpacts,
                                            &unused_rulep);
     if (error) {
         return error;
     }
 
-    /* Drop any run away recirc rule lookups. Recirc_id has to be
-     * non-zero when reaching this rule.
+    /* Continue rule lookups for not-matched recirc rules from table 0.
      *
-     * (priority=1), *, actions=drop
+     * (priority=1), actions=resubmit(, 0)
      */
-    ofpbuf_clear(&ofpacts);
+    resubmit = ofpact_put_RESUBMIT(&ofpacts);
+    resubmit->in_port = OFPP_IN_PORT;
+    resubmit->table_id = 0;
+
     match_init_catchall(&match);
     error = ofproto_dpif_add_internal_flow(ofproto, &match, 1, 0, &ofpacts,
                                            &unused_rulep);
@@ -1354,7 +1432,7 @@ destruct(struct ofproto *ofproto_)
     struct ofproto_packet_in *pin, *next_pin;
     struct rule_dpif *rule;
     struct oftable *table;
-    struct list pins;
+    struct ovs_list pins;
 
     ofproto->backer->need_revalidate = REV_RECONFIGURE;
     xlate_txn_start();
@@ -1380,6 +1458,8 @@ destruct(struct ofproto *ofproto_)
         free(pin);
     }
     guarded_list_destroy(&ofproto->pins);
+
+    dpif_backer_recirc_clear_ofproto(ofproto->backer, ofproto);
 
     mbridge_unref(ofproto->mbridge);
 
@@ -1429,7 +1509,7 @@ run(struct ofproto *ofproto_)
      * waiting for flow restore to complete. */
     if (!ofproto_get_flow_restore_wait()) {
         struct ofproto_packet_in *pin, *next_pin;
-        struct list pins;
+        struct ovs_list pins;
 
         guarded_list_pop_all(&ofproto->pins, &pins);
         LIST_FOR_EACH_SAFE (pin, next_pin, list_node, &pins) {
@@ -2871,7 +2951,7 @@ bundle_send_learning_packets(struct ofbundle *bundle)
     struct ofpbuf *learning_packet;
     int error, n_packets, n_errors;
     struct mac_entry *e;
-    struct list packets;
+    struct ovs_list packets;
 
     list_init(&packets);
     ovs_rwlock_rdlock(&ofproto->ml->rwlock);
@@ -3646,11 +3726,7 @@ rule_dpif_lookup(struct ofproto_dpif *ofproto, struct flow *flow,
         if (wc) {
             wc->masks.recirc_id = UINT32_MAX;
         }
-        if (flow->recirc_id) {
-            /* Start looking up from internal table for post recirculation
-             * flows or packets. */
-            *table_id = TBL_INTERNAL;
-        }
+        *table_id = rule_dpif_lookup_get_init_table_id(flow);
     }
 
     return rule_dpif_lookup_from_table(ofproto, flow, wc, take_ref, stats,
@@ -3953,7 +4029,7 @@ group_construct_stats(struct group_dpif *group)
     OVS_REQUIRES(group->stats_mutex)
 {
     struct ofputil_bucket *bucket;
-    const struct list *buckets;
+    const struct ovs_list *buckets;
 
     group->packet_count = 0;
     group->byte_count = 0;
@@ -3977,7 +4053,7 @@ group_dpif_credit_stats(struct group_dpif *group,
         bucket->stats.packet_count += stats->n_packets;
         bucket->stats.byte_count += stats->n_bytes;
     } else { /* Credit to all buckets */
-        const struct list *buckets;
+        const struct ovs_list *buckets;
 
         group_dpif_get_buckets(group, &buckets);
         LIST_FOR_EACH (bucket, list_node, buckets) {
@@ -4035,7 +4111,7 @@ group_get_stats(const struct ofgroup *group_, struct ofputil_group_stats *ogs)
 {
     struct group_dpif *group = group_dpif_cast(group_);
     struct ofputil_bucket *bucket;
-    const struct list *buckets;
+    const struct ovs_list *buckets;
     struct bucket_counter *bucket_stats;
 
     ovs_mutex_lock(&group->stats_mutex);
@@ -4073,7 +4149,7 @@ group_dpif_lookup(struct ofproto_dpif *ofproto, uint32_t group_id,
 
 void
 group_dpif_get_buckets(const struct group_dpif *group,
-                       const struct list **buckets)
+                       const struct ovs_list **buckets)
 {
     *buckets = &group->up.buckets;
 }
@@ -4480,7 +4556,7 @@ trace_report(struct xlate_in *xin, const char *s, int recurse)
  *
  * On success, initializes '*ofprotop' and 'flow' and returns NULL.  On failure
  * returns a nonnull malloced error message. */
-static char * WARN_UNUSED_RESULT
+static char * OVS_WARN_UNUSED_RESULT
 parse_flow_and_packet(int argc, const char *argv[],
                       struct ofproto_dpif **ofprotop, struct flow *flow,
                       struct ofpbuf **packetp)
@@ -5338,20 +5414,62 @@ odp_port_to_ofp_port(const struct ofproto_dpif *ofproto, odp_port_t odp_port)
     }
 }
 
+struct ofproto_dpif *
+ofproto_dpif_recirc_get_ofproto(const struct dpif_backer *backer,
+                                uint32_t recirc_id)
+{
+    struct dpif_backer_recirc_node *node;
+
+    node = CONTAINER_OF(cmap_find(&backer->recirc_map, recirc_id),
+                        struct dpif_backer_recirc_node, cmap_node);
+
+    return node ? node->ofproto : NULL;
+}
+
 uint32_t
 ofproto_dpif_alloc_recirc_id(struct ofproto_dpif *ofproto)
 {
     struct dpif_backer *backer = ofproto->backer;
+    uint32_t recirc_id = recirc_id_alloc(backer->rid_pool);
 
-    return  recirc_id_alloc(backer->rid_pool);
+    if (recirc_id) {
+        struct dpif_backer_recirc_node *node = xmalloc(sizeof *node);
+
+        node->recirc_id = recirc_id;
+        node->ofproto = ofproto;
+
+        ovs_mutex_lock(&backer->recirc_mutex);
+        cmap_insert(&backer->recirc_map, &node->cmap_node, node->recirc_id);
+        ovs_mutex_unlock(&backer->recirc_mutex);
+    }
+
+    return recirc_id;
 }
 
 void
 ofproto_dpif_free_recirc_id(struct ofproto_dpif *ofproto, uint32_t recirc_id)
 {
     struct dpif_backer *backer = ofproto->backer;
+    struct dpif_backer_recirc_node *node;
 
-    recirc_id_free(backer->rid_pool, recirc_id);
+    node = CONTAINER_OF(cmap_find(&backer->recirc_map, recirc_id),
+                        struct dpif_backer_recirc_node, cmap_node);
+    if (node) {
+        ovs_mutex_lock(&backer->recirc_mutex);
+        cmap_remove(&backer->recirc_map, &node->cmap_node, node->recirc_id);
+        ovs_mutex_unlock(&backer->recirc_mutex);
+        recirc_id_free(backer->rid_pool, node->recirc_id);
+
+        if (node->ofproto != ofproto) {
+            VLOG_ERR("recirc_id %"PRIu32", freed by incorrect ofproto (%s),"
+                     " expect ofproto (%s)", node->recirc_id, ofproto->up.name,
+                     node->ofproto->up.name);
+        }
+
+        /* RCU postpone the free, since other threads may be referring
+         * to 'node' at same time. */
+        ovsrcu_postpone(free, node);
+    }
 }
 
 int

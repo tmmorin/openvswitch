@@ -448,8 +448,8 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
 	VLOG_WARN("miniflow_extract: l3");
 
     	if (md && md->base_layer == LAYER_3)  {
-		VLOG_WARN("miniflow_extract: l3 bl ... md->protocol: %04x", md->protocol);
-		dl_type = md->protocol;
+		VLOG_WARN("miniflow_extract: l3 bl ... md->packet_ethertype: %04x", md->packet_ethertype);
+		dl_type = md->packet_ethertype;
 
 		/* Parse mpls.  ---- FIXME: to factor-out with the above ----*/
 		if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
@@ -466,7 +466,7 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
 		/** FIXME ------- not true for all packets, needs to be correctly handled with a pop_mpls -> set ethertype */
                 packet->l3_ofs = (char *)data - frame;
 	} else {
-		VLOG_WARN("miniflow_extract: l3 just assume... (md->protocol iz zero)");
+		VLOG_WARN("miniflow_extract: l3 just assume... (md->packet_ethertype is zero)");
 		/* We assume L3 packets are either IPv4 or IPv6 */
 		dl_type = get_l3_eth_type(packet);  
 		miniflow_push_be16(mf, dl_type, dl_type);
@@ -1481,18 +1481,21 @@ flow_count_mpls_labels(const struct flow *flow, struct flow_wildcards *wc)
     /* dl_type is always masked. */
     if (eth_type_mpls(flow->dl_type)) {
         int i;
-        int len = FLOW_MAX_MPLS_LABELS;
+        int cnt;
 
-        for (i = 0; i < len; i++) {
+        cnt = 0;
+        for (i = 0; i < FLOW_MAX_MPLS_LABELS; i++) {
             if (wc) {
                 wc->masks.mpls_lse[i] |= htonl(MPLS_BOS_MASK);
             }
             if (flow->mpls_lse[i] & htonl(MPLS_BOS_MASK)) {
                 return i + 1;
             }
+            if (flow->mpls_lse[i]) {
+                cnt++;
+            }
         }
-
-        return len;
+        return cnt;
     } else {
         return 0;
     }

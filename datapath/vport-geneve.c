@@ -324,33 +324,36 @@ static void geneve_fix_segment(struct sk_buff *skb)
 	udph->len = htons(skb->len - skb_transport_offset(skb));
 }
 
-static int handle_offloads(struct sk_buff *skb)
+static struct sk_buff *handle_offloads(struct sk_buff *skb)
 {
-	if (skb_is_gso(skb))
-		OVS_GSO_CB(skb)->fix_segment = geneve_fix_segment;
-	else if (skb->ip_summed != CHECKSUM_PARTIAL)
-		skb->ip_summed = CHECKSUM_NONE;
-	return 0;
+	return ovs_iptunnel_handle_offloads(skb, false, geneve_fix_segment);
 }
 #else
-static int handle_offloads(struct sk_buff *skb)
+
+static struct sk_buff *handle_offloads(struct sk_buff *skb)
 {
-	if (skb->encapsulation && skb_is_gso(skb)) {
-		kfree_skb(skb);
-		return -ENOSYS;
-	}
+	int err = 0;
 
 	if (skb_is_gso(skb)) {
-		int err = skb_unclone(skb, GFP_ATOMIC);
+
+		if (skb_is_encapsulated(skb)) {
+			err = -ENOSYS;
+			goto error;
+		}
+
+		err = skb_unclone(skb, GFP_ATOMIC);
 		if (unlikely(err))
-			return err;
+			goto error;
 
 		skb_shinfo(skb)->gso_type |= SKB_GSO_UDP_TUNNEL;
 	} else if (skb->ip_summed != CHECKSUM_PARTIAL)
 		skb->ip_summed = CHECKSUM_NONE;
 
 	skb->encapsulation = 1;
-	return 0;
+	return skb;
+error:
+	kfree_skb(skb);
+	return ERR_PTR(err);
 }
 #endif
 
@@ -365,7 +368,13 @@ static int geneve_send(struct vport *vport, struct sk_buff *skb)
 	int sent_len;
 	int err;
 
-	if (unlikely(!OVS_CB(skb)->egress_tun_info))
+	if (unlikely(!OVS_CB(skb)->egress_tun_info)) {
+		err = -EINVAL;
+		goto error;
+	}
+
+	/* Reject layer 3 packets */
+	if (unlikely(skb->mac_len == 0))
 		return -EINVAL;
 
 	/* Reject layer 3 packets */
@@ -407,6 +416,7 @@ static int geneve_send(struct vport *vport, struct sk_buff *skb)
 					     skb->vlan_proto,
 					     vlan_tx_tag_get(skb)))) {
 			err = -ENOMEM;
+			skb = NULL;
 			goto err_free_rt;
 		}
 		vlan_set_tci(skb, 0);
@@ -421,9 +431,12 @@ static int geneve_send(struct vport *vport, struct sk_buff *skb)
 	geneve_build_header(vport, skb);
 
 	/* Offloading */
-	err = handle_offloads(skb);
-	if (err)
+	skb = handle_offloads(skb);
+	if (IS_ERR(skb)) {
+		err = PTR_ERR(skb);
+		skb = NULL;
 		goto err_free_rt;
+	}
 
 	df = tun_key->tun_flags & TUNNEL_DONT_FRAGMENT ? htons(IP_DF) : 0;
 
@@ -438,6 +451,7 @@ static int geneve_send(struct vport *vport, struct sk_buff *skb)
 err_free_rt:
 	ip_rt_put(rt);
 error:
+	kfree_skb(skb);
 	return err;
 }
 

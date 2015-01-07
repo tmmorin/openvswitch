@@ -245,7 +245,6 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/tnl-ports.c \
 	lib/tnl-ports.h \
 	lib/token-bucket.c \
-	lib/token-bucket.h \
 	lib/type-props.h \
 	lib/unaligned.h \
 	lib/unicode.c \
@@ -260,13 +259,11 @@ lib_libopenvswitch_la_SOURCES = \
 	lib/vconn-provider.h \
 	lib/vconn-stream.c \
 	lib/vconn.c \
-	lib/vconn.h \
 	lib/vlan-bitmap.c \
 	lib/vlan-bitmap.h \
 	lib/vlandev.c \
 	lib/vlandev.h \
 	lib/vlog.c \
-	lib/vlog.h \
 	lib/vswitch-idl.c \
 	lib/vswitch-idl.h \
 	lib/vtep-idl.c \

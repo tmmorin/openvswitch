@@ -42,7 +42,7 @@
 #include "smap.h"
 #include "sset.h"
 #include "svec.h"
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(netdev);
 
@@ -53,7 +53,7 @@ COVERAGE_DEFINE(netdev_get_stats);
 
 struct netdev_saved_flags {
     struct netdev *netdev;
-    struct list node;           /* In struct netdev's saved_flags_list. */
+    struct ovs_list node;           /* In struct netdev's saved_flags_list. */
     enum netdev_flags saved_flags;
     enum netdev_flags saved_values;
 };

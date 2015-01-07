@@ -47,8 +47,8 @@
 #include "table.h"
 #include "timeval.h"
 #include "util.h"
-#include "vconn.h"
-#include "vlog.h"
+#include "openvswitch/vconn.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(vtep_ctl);
 
@@ -121,10 +121,10 @@ static struct table_style table_style = TABLE_STYLE_DEFAULT;
 static struct ovsdb_idl *the_idl;
 static struct ovsdb_idl_txn *the_idl_txn;
 
-NO_RETURN static void vtep_ctl_exit(int status);
-NO_RETURN static void vtep_ctl_fatal(const char *, ...) PRINTF_FORMAT(1, 2);
+OVS_NO_RETURN static void vtep_ctl_exit(int status);
+OVS_NO_RETURN static void vtep_ctl_fatal(const char *, ...) OVS_PRINTF_FORMAT(1, 2);
 static char *default_db(void);
-NO_RETURN static void usage(void);
+OVS_NO_RETURN static void usage(void);
 static void parse_options(int argc, char *argv[], struct shash *local_options);
 static bool might_write_to_db(char **argv);
 
@@ -725,11 +725,11 @@ struct vtep_ctl_context {
 struct vtep_ctl_pswitch {
     const struct vteprec_physical_switch *ps_cfg;
     char *name;
-    struct list ports;          /* Contains "struct vteprec_physical_port"s. */
+    struct ovs_list ports;      /* Contains "struct vteprec_physical_port"s. */
 };
 
 struct vtep_ctl_port {
-    struct list ports_node;     /* In struct vtep_ctl_pswitch's 'ports' list. */
+    struct ovs_list ports_node; /* In struct vtep_ctl_pswitch's 'ports' list. */
     const struct vteprec_physical_port *port_cfg;
     struct vtep_ctl_pswitch *ps;
     struct shash bindings;      /* Maps from vlan to vtep_ctl_lswitch. */
@@ -749,12 +749,12 @@ struct vtep_ctl_mcast_mac {
     const struct vteprec_mcast_macs_remote *remote_cfg;
 
     const struct vteprec_physical_locator_set *ploc_set_cfg;
-    struct list locators;       /* Contains 'vtep_ctl_ploc's. */
+    struct ovs_list locators;   /* Contains 'vtep_ctl_ploc's. */
 };
 
 struct vtep_ctl_ploc {
-    struct list locators_node;  /* In struct vtep_ctl_ploc_set's 'locators'
-                                   list. */
+    struct ovs_list locators_node;  /* In struct vtep_ctl_ploc_set's 'locators'
+                                       list. */
     const struct vteprec_physical_locator *ploc_cfg;
 };
 
@@ -2586,7 +2586,7 @@ missing_operator_error(const char *arg, const char **allowed_operators,
  *
  * On success, returns NULL.  On failure, returned a malloc()'d string error
  * message and stores NULL into all of the nonnull output arguments. */
-static char * WARN_UNUSED_RESULT
+static char * OVS_WARN_UNUSED_RESULT
 parse_column_key_value(const char *arg,
                        const struct vtep_ctl_table_class *table,
                        const struct ovsdb_idl_column **columnp, char **keyp,

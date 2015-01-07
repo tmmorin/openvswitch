@@ -56,12 +56,11 @@
 #include "ovs-router.h"
 #include "tnl-ports.h"
 #include "tunnel.h"
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 COVERAGE_DEFINE(xlate_actions);
 COVERAGE_DEFINE(xlate_actions_oversize);
 COVERAGE_DEFINE(xlate_actions_too_many_output);
-COVERAGE_DEFINE(xlate_actions_mpls_overflow);
 
 VLOG_DEFINE_THIS_MODULE(ofproto_dpif_xlate);
 
@@ -82,7 +81,7 @@ struct xbridge {
     struct hmap_node hmap_node;   /* Node in global 'xbridges' map. */
     struct ofproto_dpif *ofproto; /* Key in global 'xbridges' map. */
 
-    struct list xbundles;         /* Owned xbundles. */
+    struct ovs_list xbundles;     /* Owned xbundles. */
     struct hmap xports;           /* Indexed by ofp_port. */
 
     char *name;                   /* Name used in log messages. */
@@ -120,10 +119,10 @@ struct xbundle {
     struct hmap_node hmap_node;    /* In global 'xbundles' map. */
     struct ofbundle *ofbundle;     /* Key in global 'xbundles' map. */
 
-    struct list list_node;         /* In parent 'xbridges' list. */
+    struct ovs_list list_node;     /* In parent 'xbridges' list. */
     struct xbridge *xbridge;       /* Parent xbridge. */
 
-    struct list xports;            /* Contains "struct xport"s. */
+    struct ovs_list xports;        /* Contains "struct xport"s. */
 
     char *name;                    /* Name used in log messages. */
     struct bond *bond;             /* Nonnull iff more than one port. */
@@ -146,7 +145,7 @@ struct xport {
 
     odp_port_t odp_port;             /* Datapath port number or ODPP_NONE. */
 
-    struct list bundle_node;         /* In parent xbundle (if it exists). */
+    struct ovs_list bundle_node;     /* In parent xbundle (if it exists). */
     struct xbundle *xbundle;         /* Parent xbundle or null. */
 
     struct netdev *netdev;           /* 'ofport''s netdev. */
@@ -984,18 +983,48 @@ static struct ofproto_dpif *
 xlate_lookup_ofproto_(const struct dpif_backer *backer, const struct flow *flow,
                       ofp_port_t *ofp_in_port, const struct xport **xportp)
 {
+    struct ofproto_dpif *recv_ofproto = NULL;
+    struct ofproto_dpif *recirc_ofproto = NULL;
     const struct xport *xport;
+    ofp_port_t in_port = OFPP_NONE;
 
     *xportp = xport = xlate_lookup_xport(backer, flow);
 
     if (xport) {
-        if (ofp_in_port) {
-            *ofp_in_port = xport->ofp_port;
-        }
-        return xport->xbridge->ofproto;
+        recv_ofproto = xport->xbridge->ofproto;
+        in_port = xport->ofp_port;
     }
 
-    return NULL;
+    /* When recirc_id is set in 'flow', checks whether the ofproto_dpif that
+     * corresponds to the recirc_id is same as the receiving bridge.  If they
+     * are the same, uses the 'recv_ofproto' and keeps the 'ofp_in_port' as
+     * assigned.  Otherwise, uses the 'recirc_ofproto' that owns recirc_id and
+     * assigns OFPP_NONE to 'ofp_in_port'.  Doing this is in that, the
+     * recirculated flow must be processced by the ofproto which originates
+     * the recirculation, and as bridges can only see their own ports, the
+     * in_port of the 'recv_ofproto' should not be passed to the
+     * 'recirc_ofproto'.
+     *
+     * Admittedly, setting the 'ofp_in_port' to OFPP_NONE limits the
+     * 'recirc_ofproto' from meaningfully matching on in_port of recirculated
+     * flow, and should be fixed in the near future.
+     *
+     * TODO: Restore the original patch port.
+     */
+    if (recv_ofproto && flow->recirc_id) {
+        recirc_ofproto = ofproto_dpif_recirc_get_ofproto(backer,
+                                                         flow->recirc_id);
+        if (recv_ofproto != recirc_ofproto) {
+            *xportp = xport = NULL;
+            in_port = OFPP_NONE;
+        }
+    }
+
+    if (ofp_in_port) {
+        *ofp_in_port = in_port;
+    }
+
+    return xport ? recv_ofproto : recirc_ofproto;
 }
 
 /* Given a datapath and flow metadata ('backer', and 'flow' respectively)
@@ -1016,9 +1045,7 @@ xlate_lookup_ofproto(const struct dpif_backer *backer, const struct flow *flow,
  * pointers until quiescing, for longer term use additional references must
  * be taken.
  *
- * '*ofp_in_port' is set to OFPP_NONE if 'flow''s in_port does not exist.
- *
- * Returns 0 if successful, ENODEV if the parsed flow has no associated ofport.
+ * Returns 0 if successful, ENODEV if the parsed flow has no associated ofproto.
  */
 int
 xlate_lookup(const struct dpif_backer *backer, const struct flow *flow,
@@ -1031,11 +1058,7 @@ xlate_lookup(const struct dpif_backer *backer, const struct flow *flow,
 
     ofproto = xlate_lookup_ofproto_(backer, flow, ofp_in_port, &xport);
 
-    if (ofp_in_port && !xport) {
-        *ofp_in_port = OFPP_NONE;
-    }
-
-    if (!xport) {
+    if (!ofproto) {
         return ENODEV;
     }
 
@@ -1044,16 +1067,17 @@ xlate_lookup(const struct dpif_backer *backer, const struct flow *flow,
     }
 
     if (ipfix) {
-        *ipfix = xport->xbridge->ipfix;
+        *ipfix = xport ? xport->xbridge->ipfix : NULL;
     }
 
     if (sflow) {
-        *sflow = xport->xbridge->sflow;
+        *sflow = xport ? xport->xbridge->sflow : NULL;
     }
 
     if (netflow) {
-        *netflow = xport->xbridge->netflow;
+        *netflow = xport ? xport->xbridge->netflow : NULL;
     }
+
     return 0;
 }
 
@@ -1312,7 +1336,7 @@ group_first_live_bucket(const struct xlate_ctx *ctx,
                         const struct group_dpif *group, int depth)
 {
     struct ofputil_bucket *bucket;
-    const struct list *buckets;
+    const struct ovs_list *buckets;
 
     group_dpif_get_buckets(group, &buckets);
     LIST_FOR_EACH (bucket, list_node, buckets) {
@@ -1334,7 +1358,7 @@ group_best_live_bucket(const struct xlate_ctx *ctx,
     int i = 0;
 
     struct ofputil_bucket *bucket;
-    const struct list *buckets;
+    const struct ovs_list *buckets;
 
     group_dpif_get_buckets(group, &buckets);
     LIST_FOR_EACH (bucket, list_node, buckets) {
@@ -2680,6 +2704,7 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
         const struct xport *peer = xport->peer;
         struct flow old_flow = ctx->xin->flow;
         enum slow_path_reason special;
+        uint8_t table_id = rule_dpif_lookup_get_init_table_id(&ctx->xin->flow);
 
         ctx->xbridge = peer->xbridge;
         flow->in_port.ofp_port = peer->ofp_port;
@@ -2694,14 +2719,16 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
             ctx->xout->slow |= special;
         } else if (may_receive(peer, ctx)) {
             if (xport_stp_forward_state(peer) && xport_rstp_forward_state(peer)) {
-                xlate_table_action(ctx, flow->in_port.ofp_port, 0, true, true);
+                xlate_table_action(ctx, flow->in_port.ofp_port, table_id,
+                                   true, true);
             } else {
                 /* Forwarding is disabled by STP and RSTP.  Let OFPP_NORMAL and
                  * the learning action look at the packet, then drop it. */
                 struct flow old_base_flow = ctx->base_flow;
                 size_t old_size = ofpbuf_size(ctx->xout->odp_actions);
                 mirror_mask_t old_mirrors = ctx->xout->mirrors;
-                xlate_table_action(ctx, flow->in_port.ofp_port, 0, true, true);
+                xlate_table_action(ctx, flow->in_port.ofp_port, table_id,
+                                   true, true);
                 ctx->xout->mirrors = old_mirrors;
                 ctx->base_flow = old_base_flow;
                 ofpbuf_set_size(ctx->xout->odp_actions, old_size);
@@ -2982,7 +3009,7 @@ static void
 xlate_all_group(struct xlate_ctx *ctx, struct group_dpif *group)
 {
     struct ofputil_bucket *bucket;
-    const struct list *buckets;
+    const struct ovs_list *buckets;
     struct flow old_flow = ctx->xin->flow;
 
     group_dpif_get_buckets(group, &buckets);
@@ -3297,9 +3324,6 @@ compose_mpls_push_action(struct xlate_ctx *ctx, struct ofpact_push_mpls *mpls)
         }
         ctx->exit = true;
         return;
-    } else if (n >= ctx->xbridge->max_mpls_depth) {
-        COVERAGE_INC(xlate_actions_mpls_overflow);
-        ctx->xout->slow |= SLOW_ACTION;
     }
 
     flow_push_mpls(flow, n, mpls->ethertype, wc);
@@ -3313,7 +3337,7 @@ compose_mpls_pop_action(struct xlate_ctx *ctx, ovs_be16 eth_type)
     int n = flow_count_mpls_labels(flow, wc);
 
     if (flow_pop_mpls(flow, n, eth_type, wc)) {
-        if (ctx->xbridge->enable_recirc && !eth_type_mpls(eth_type)) {
+        if (ctx->xbridge->enable_recirc) {
             ctx->was_mpls = true;
         }
     } else if (n >= FLOW_MAX_MPLS_LABELS) {
@@ -3721,11 +3745,14 @@ xlate_action_set(struct xlate_ctx *ctx)
 }
 
 static bool
-ofpact_needs_recirculation_after_mpls(const struct xlate_ctx *ctx,
-                                      const struct ofpact *a)
+ofpact_needs_recirculation_after_mpls(const struct ofpact *a, struct xlate_ctx *ctx)
 {
     struct flow_wildcards *wc = &ctx->xout->wc;
     struct flow *flow = &ctx->xin->flow;
+
+    if (!ctx->was_mpls) {
+        return false;
+    }
 
     switch (a->type) {
     case OFPACT_OUTPUT:
@@ -3741,11 +3768,6 @@ ofpact_needs_recirculation_after_mpls(const struct xlate_ctx *ctx,
     case OFPACT_SET_TUNNEL:
     case OFPACT_SET_QUEUE:
     case OFPACT_POP_QUEUE:
-    case OFPACT_POP_MPLS:
-    case OFPACT_DEC_MPLS_TTL:
-    case OFPACT_SET_MPLS_TTL:
-    case OFPACT_SET_MPLS_TC:
-    case OFPACT_SET_MPLS_LABEL:
     case OFPACT_NOTE:
     case OFPACT_OUTPUT_REG:
     case OFPACT_EXIT:
@@ -3756,6 +3778,11 @@ ofpact_needs_recirculation_after_mpls(const struct xlate_ctx *ctx,
     case OFPACT_SAMPLE:
         return false;
 
+    case OFPACT_POP_MPLS:
+    case OFPACT_DEC_MPLS_TTL:
+    case OFPACT_SET_MPLS_TTL:
+    case OFPACT_SET_MPLS_TC:
+    case OFPACT_SET_MPLS_LABEL:
     case OFPACT_SET_IPV4_SRC:
     case OFPACT_SET_IPV4_DST:
     case OFPACT_SET_IP_DSCP:
@@ -3817,7 +3844,7 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
             break;
         }
 
-        if (ctx->was_mpls && ofpact_needs_recirculation_after_mpls(ctx, a)) {
+        if (ofpact_needs_recirculation_after_mpls(a, ctx)) {
             compose_recirculate_action(ctx, ofpacts, a, ofpacts_len);
             return;
         }

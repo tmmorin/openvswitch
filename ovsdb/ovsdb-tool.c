@@ -39,14 +39,14 @@
 #include "table.h"
 #include "timeval.h"
 #include "util.h"
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 /* -m, --more: Verbosity level for "show-log" command output. */
 static int show_log_verbosity;
 
 static const struct command *get_all_commands(void);
 
-NO_RETURN static void usage(void);
+OVS_NO_RETURN static void usage(void);
 static void parse_options(int argc, char *argv[]);
 
 static const char *default_db(void);

@@ -40,8 +40,8 @@
 #include "timeval.h"
 #include "unixctl.h"
 #include "util.h"
-#include "vconn.h"
-#include "vlog.h"
+#include "openvswitch/vconn.h"
+#include "openvswitch/vlog.h"
 #include "socket-util.h"
 #include "ofp-util.h"
 
@@ -91,7 +91,7 @@ static char *unixctl_path = NULL;
 
 static void new_switch(struct switch_ *, struct vconn *);
 static void parse_options(int argc, char *argv[]);
-NO_RETURN static void usage(void);
+OVS_NO_RETURN static void usage(void);
 
 int
 main(int argc, char *argv[])

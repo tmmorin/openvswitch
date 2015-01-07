@@ -34,14 +34,14 @@
 #include "signals.h"
 #include "socket-util.h"
 #include "util.h"
-#include "vlog.h"
+#include "openvswitch/vlog.h"
 
 VLOG_DEFINE_THIS_MODULE(process);
 
 COVERAGE_DEFINE(process_start);
 
 struct process {
-    struct list node;
+    struct ovs_list node;
     char *name;
     pid_t pid;
 
@@ -54,7 +54,7 @@ struct process {
 static int fds[2];
 
 /* All processes. */
-static struct list all_processes = LIST_INITIALIZER(&all_processes);
+static struct ovs_list all_processes = OVS_LIST_INITIALIZER(&all_processes);
 
 static void sigchld_handler(int signr OVS_UNUSED);
 
