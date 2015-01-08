@@ -166,6 +166,7 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	__be32 *new_mpls_lse;
 	struct ethhdr *hdr;
 
+	printk(KERN_WARNING "push_mpls: skb->mac_len: %d)\n",skb->mac_len);
 	printk_skb(skb);
 
 	/* Networking stack do not allow simultaneous Tunnel and MPLS GSO. */
@@ -176,21 +177,31 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 		return -ENOTSUPP;
 	}
 
+	printk(KERN_WARNING "push_mpls: A FIXME\n");
+
 	if (skb_cow_head(skb, MPLS_HLEN) < 0)
 		return -ENOMEM;
 
+	printk(KERN_WARNING "push_mpls: B FIXME\n");
 	skb_push(skb, MPLS_HLEN);
+	printk(KERN_WARNING "push_mpls: B1 FIXME (mac_len: %d)\n",skb->mac_len);
 	if (skb->mac_len) {
+		printk(KERN_WARNING "push_mpls: before memmove %d <- %d (len:%d)\n",skb_mac_header(skb)-MPLS_HLEN,skb_mac_header(skb),skb->mac_len);
+		printk(KERN_WARNING "push_mpls: skb->head: %d",skb->head);
+		printk(KERN_WARNING "push_mpls: skb->mac_header: %d",skb->mac_header);
 		memmove(skb_mac_header(skb) - MPLS_HLEN, skb_mac_header(skb),
 			skb->mac_len);
+		printk(KERN_WARNING "push_mpls: before skb_reset_mac_header\n");
 		skb_reset_mac_header(skb);
 	}
 
+	printk(KERN_WARNING "push_mpls: C FIXME\n");
 	new_mpls_lse = (__be32 *)skb_mpls_header(skb);
 	*new_mpls_lse = mpls->mpls_lse;
 
 	printk_skb(skb);
 
+	printk(KERN_WARNING "push_mpls: D FIXME\n");
 	if (skb->ip_summed == CHECKSUM_COMPLETE)
 		skb->csum = csum_add(skb->csum, csum_partial(new_mpls_lse,
 							     MPLS_HLEN, 0));
@@ -209,6 +220,7 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	skb->protocol = mpls->mpls_ethertype;
 
 	invalidate_flow_key(key);
+	printk(KERN_WARNING "push_mpls: Z FIXME\n");
 	return 0;
 }
 
@@ -392,8 +404,11 @@ static int set_eth_addr(struct sk_buff *skb, struct sw_flow_key *key,
 static int pop_eth(struct sk_buff *skb, struct sw_flow_key *key)
 {
 	skb_pull_rcsum(skb, ETH_HLEN);
+	printk(KERN_WARNING "pop_eth: before skb_reset_mac_header, skb->mac_len: %d)\n",skb->mac_len);
 	skb_reset_mac_header(skb);
+	printk(KERN_WARNING "pop_eth: before skb->mac_len decrease: skb->mac_len: %d)\n",skb->mac_len);
 	skb->mac_len -= ETH_HLEN;
+	printk(KERN_WARNING "pop_eth: after skb->mac_len decrease: skb->mac_len: %d)\n",skb->mac_len);
 
 	invalidate_flow_key(key);
 	return 0;
@@ -990,22 +1005,6 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 
 		case OVS_ACTION_ATTR_POP_VLAN:
 			err = pop_vlan(skb, key);
-			break;
-
-		case OVS_ACTION_ATTR_PUSH_ETH:
-			err = push_eth(skb, key, nla_data(a));
-			break;
-
-		case OVS_ACTION_ATTR_POP_ETH:
-			err = pop_eth(skb, key);
-			break;
-
-		case OVS_ACTION_ATTR_PUSH_ETH:
-			err = push_eth(skb, key, nla_data(a));
-			break;
-
-		case OVS_ACTION_ATTR_POP_ETH:
-			err = pop_eth(skb, key);
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_ETH:

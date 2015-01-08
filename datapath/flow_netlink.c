@@ -621,7 +621,7 @@ static int __ipv4_tun_to_nlattr(struct sk_buff *skb,
 	} else {
 		printk(KERN_WARNING "no swkey, cannot determine if layer3\n");
 	}
-	//printk(KERN_WARNING "__ipv4_tun_to_nlattr:z\n");
+	printk(KERN_WARNING "__ipv4_tun_to_nlattr:z\n");
 		
 	return 0;
 }
@@ -1993,9 +1993,7 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			const struct ovs_action_push_mpls *mpls = nla_data(a);
 
 			printk(KERN_WARNING "__ovs_nla_copy_actions:b9 (push_mpls)\n");
-				//return -EINVAL;
-			}
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b9-\n");
+
 			if (!eth_p_mpls(mpls->mpls_ethertype))
 				return -EINVAL;
 

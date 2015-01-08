@@ -544,12 +544,14 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 
 	len = nla_len(a[OVS_PACKET_ATTR_PACKET]);
 	packet = __dev_alloc_skb(NET_IP_ALIGN + len, GFP_KERNEL);
+	printk(KERN_WARNING "ovs_packet_cmd_execute: post-Alloc packet->mac_len: %d\n",packet->mac_len);
 	err = -ENOMEM;
 	if (!packet)
 		goto err;
 	skb_reserve(packet, NET_IP_ALIGN);
 
 	nla_memcpy(__skb_put(packet, len), a[OVS_PACKET_ATTR_PACKET], len);
+	printk(KERN_WARNING "ovs_packet_cmd_execute: post-copy packet->mac_len: %d\n",packet->mac_len);
 
 	/* Build an sw_flow for sending this packet. */
 	flow = ovs_flow_alloc();
@@ -560,11 +562,13 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	printk(KERN_WARNING "ovs_packet_cmd_execute:1\n");
 	err = ovs_flow_key_extract_userspace(a[OVS_PACKET_ATTR_KEY], packet,
 					     &flow->key, log);
+	printk(KERN_WARNING "ovs_packet_cmd_execute: post-ofke packet->mac_len: %d\n",packet->mac_len);
 	if (err)
 		goto err_flow_free;
 
 	err = ovs_nla_copy_actions(a[OVS_PACKET_ATTR_ACTIONS],
 				   &flow->key, &acts, log);
+	printk(KERN_WARNING "ovs_packet_cmd_execute: post-nlacopyactions packet->mac_len: %d\n",packet->mac_len);
 	if (err)
 		goto err_flow_free;
 
@@ -575,6 +579,8 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	packet->protocol = flow->key.eth.type;
 	printk(KERN_WARNING "ovs_packet_cmd_execute: packet->protocol: %d\n",packet->protocol);
 	printk(KERN_WARNING "ovs_packet_cmd_execute: packet->mac_len: %d\n",packet->mac_len);
+
+	skb_reset_mac_len(packet);
 
 	rcu_read_lock();
 	dp = get_dp_rcu(sock_net(skb->sk), ovs_header->dp_ifindex);

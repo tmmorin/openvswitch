@@ -457,20 +457,25 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 	/* Flags are always used as part of stats */
 	key->tp.flags = 0;
 
+	printk(KERN_WARNING "key_extract: A skb->mac_len: %d\n",skb->mac_len);
+
+
 	skb_reset_mac_header(skb);
 
 	/* Link layer. */
 	if (key->phy.is_layer3) {
 		printk("key_extract: is_layer3\n");
-		//skb_reset_network_header(skb);  /* maybe not correct for MPLS */  /* remove in lori ... v8 */
-
 		key->eth.tci = 0;
+		printk(KERN_WARNING "key_extract: B1 skb->mac_len: %d\n",skb->mac_len);
 	} else {
+		printk(KERN_WARNING "key_extract: B2 skb->mac_len: %d\n",skb->mac_len);
 		eth = eth_hdr(skb);
 		ether_addr_copy(key->eth.src, eth->h_source);
 		ether_addr_copy(key->eth.dst, eth->h_dest);
 
+		printk(KERN_WARNING "key_extract: B3 skb->mac_len: %d\n",skb->mac_len);
 		__skb_pull(skb, 2 * ETH_ALEN);
+		printk(KERN_WARNING "key_extract: B4 skb->mac_len: %d\n",skb->mac_len);
 		/* We are going to push all headers that we pull, so no need to
 		 * update skb->csum here.
 		 */
@@ -481,16 +486,21 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 		else if (eth->h_proto == htons(ETH_P_8021Q))
 			if (unlikely(parse_vlan(skb, key)))
 				return -ENOMEM;
+		printk(KERN_WARNING "key_extract: B5 skb->mac_len: %d\n",skb->mac_len);
 		key->eth.type = parse_ethertype(skb);
 		if (unlikely(key->eth.type == htons(0)))
 			return -ENOMEM;
+		printk(KERN_WARNING "key_extract: B6 skb->mac_len: %d\n",skb->mac_len);
+
+		skb_reset_network_header(skb);
+		printk(KERN_WARNING "key_extract: B7 skb->mac_len: %d\n",skb->mac_len);
 	}
 
-		skb_reset_network_header(skb);  /* not in lori's v8 */
-	}
-
+	printk(KERN_WARNING "key_extract: C skb->mac_len: %d\n",skb->mac_len);
 	skb_reset_mac_len(skb);
+	printk(KERN_WARNING "key_extract: D skb->mac_len: %d\n",skb->mac_len);
 	__skb_push(skb, skb->data - skb_mac_header(skb));
+	printk(KERN_WARNING "key_extract: E skb->mac_len: %d\n",skb->mac_len);
 
 	printk("key_extract: is_layer3\n");
 

@@ -310,10 +310,6 @@ static int gre_send(struct vport *vport, struct sk_buff *skb)
 		return -EINVAL;
 	}
 
-	/* Reject layer 3 packets */
-	if (unlikely(skb->mac_len == 0))
-		return -EINVAL;
-
 	hlen = ip_gre_calc_hlen(OVS_CB(skb)->egress_tun_info->tunnel.tun_flags);
 
 	return __send(vport, skb, hlen, 0, 0);

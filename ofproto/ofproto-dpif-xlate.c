@@ -3834,6 +3834,8 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
     }
     /* dl_type already in the mask, not set below. */
 
+    VLOG_WARN("do_xlate_actions... len: %d", ofpacts_len);
+
     OFPACT_FOR_EACH (a, ofpacts, ofpacts_len) {
         struct ofpact_controller *controller;
         const struct ofpact_metadata *metadata;
@@ -3849,8 +3851,11 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
             return;
         }
 
+        VLOG_WARN("do_xlate_actions loop: %d",a->type);
+
         switch (a->type) {
         case OFPACT_OUTPUT:
+            VLOG_WARN("do_xlate_actions / output");
             xlate_output_action(ctx, ofpact_get_OUTPUT(a)->port,
                                 ofpact_get_OUTPUT(a)->max_len, true);
             break;
@@ -4032,13 +4037,14 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
             break;
 
         case OFPACT_POP_MPLS:
+            VLOG_WARN("do_xlate_actions / pop_mpls");
             compose_mpls_pop_action(ctx, ofpact_get_POP_MPLS(a)->ethertype);
             break;
 
         case OFPACT_SET_MPLS_LABEL:
             compose_set_mpls_label_action(
                 ctx, ofpact_get_SET_MPLS_LABEL(a)->label);
-        break;
+            break;
 
         case OFPACT_SET_MPLS_TC:
             compose_set_mpls_tc_action(ctx, ofpact_get_SET_MPLS_TC(a)->tc);
@@ -4128,7 +4134,10 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
         case OFPACT_SAMPLE:
             xlate_sample_action(ctx, ofpact_get_SAMPLE(a));
             break;
+	default:
+            VLOG_WARN("do_xlate_actions / default");
         }
+    VLOG_WARN("do_xlate_actions / end case");
     }
 }
 
@@ -4395,6 +4404,8 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
     }
 
     ctx.rule = xin->rule;
+    VLOG_WARN("xlate_actions: ctx.rule: %x",ctx.rule);
+    VLOG_WARN("xlate_actions: xin->ofpacts: %x",xin->ofpacts);
 
     ctx.base_flow = *flow;
     memset(&ctx.base_flow.tunnel, 0, sizeof ctx.base_flow.tunnel);
@@ -4424,6 +4435,7 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
     ctx.was_mpls = false;
 
     if (!xin->ofpacts && !ctx.rule) {
+        VLOG_WARN("xlate_actions: before rule_dpif_lookup");
         rule = rule_dpif_lookup(ctx.xbridge->ofproto, flow,
                                 xin->skip_wildcards ? NULL : wc,
                                 ctx.xin->xcache != NULL,
@@ -4438,6 +4450,7 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
             entry->u.rule = rule;
         }
         ctx.rule = rule;
+        VLOG_WARN("xlate_actions: ctx.rule: %x",ctx.rule);
 
         if (OVS_UNLIKELY(ctx.xin->resubmit_hook)) {
             ctx.xin->resubmit_hook(ctx.xin, rule, 0);
@@ -4446,10 +4459,13 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
     xout->fail_open = ctx.rule && rule_dpif_is_fail_open(ctx.rule);
 
     if (xin->ofpacts) {
+        VLOG_WARN("xlate_actions: actions from xin->ofpacts");
         ofpacts = xin->ofpacts;
         ofpacts_len = xin->ofpacts_len;
     } else if (ctx.rule) {
         const struct rule_actions *actions = rule_dpif_get_actions(ctx.rule);
+
+        VLOG_WARN("xlate_actions: actions from rule_dpif_get_actions: %x",actions->ofpacts);
 
         ofpacts = actions->ofpacts;
         ofpacts_len = actions->ofpacts_len;
@@ -4503,7 +4519,9 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
         add_ipfix_action(&ctx);
         sample_actions_len = ofpbuf_size(ctx.xout->odp_actions);
 
+        VLOG_WARN("xlate_actions: before test X2");
         if (tnl_may_send && (!in_port || may_receive(in_port, &ctx))) {
+            VLOG_WARN("xlate_actions: before do_xlate_actions X2");
             do_xlate_actions(ofpacts, ofpacts_len, &ctx);
 
             /* We've let OFPP_NORMAL and the learning action look at the
