@@ -641,6 +641,12 @@ recv_upcalls(struct handler *handler)
         struct flow *flow = &flows[n_upcalls];
         struct pkt_metadata md;
         int error;
+	struct ds key_ds;
+
+	ds_init(&key_ds);
+        odp_flow_key_format(dupcall->key, dupcall->key_len, &key_ds);
+    	VLOG_WARN("recv_upcalls: key: %s", ds_cstr(&key_ds) );
+	ds_destroy(&key_ds);
 
         ofpbuf_use_stub(recv_buf, recv_stubs[n_upcalls],
                         sizeof recv_stubs[n_upcalls]);
@@ -1206,6 +1212,8 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
          *      already. */
         if (may_put && upcall->type == DPIF_UC_MISS) {
             struct udpif_key *ukey = upcall->ukey;
+            
+	    VLOG_WARN("handle upcall... need to put a flow in the kernel");
 
             upcall->ukey_persists = true;
             op = &ops[n_ops++];
@@ -1259,9 +1267,9 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
         }
         opsp[n_opsp++] = &ops[i].dop;
     }
-        VLOG_WARN("handle upcall... before dpif_operate...");
+    VLOG_WARN("handle upcall... before dpif_operate...");
     dpif_operate(udpif->dpif, opsp, n_opsp);
-        VLOG_WARN("handle upcall... after dpif_operate...");
+    VLOG_WARN("handle upcall... after dpif_operate...");
     for (i = 0; i < n_ops; i++) {
         if (ops[i].ukey) {
             ukey_install_finish(ops[i].ukey, ops[i].dop.error);
@@ -1331,14 +1339,19 @@ ukey_create_from_upcall(const struct upcall *upcall)
     struct ofpbuf keybuf, maskbuf;
     bool recirc, megaflow;
 
+    VLOG_WARN("ukey_create_from_upcall");
+
     if (upcall->key_len) {
+        VLOG_WARN("ukey_create_from_upcall, using upcall->key, not calling odp_flow_key_from_flow");
         ofpbuf_use_const(&keybuf, upcall->key, upcall->key_len);
     } else {
         /* dpif-netdev doesn't provide a netlink-formatted flow key in the
          * upcall, so convert the upcall's flow here. */
         ofpbuf_use_stack(&keybuf, &keystub, sizeof keystub);
+        VLOG_WARN("ukey_create_from_upcall, calling odp_flow_key_from_flow");
         odp_flow_key_from_flow(&keybuf, upcall->flow, &upcall->xout.wc.masks,
                                upcall->flow->in_port.odp_port, true);
+        VLOG_WARN("ukey_create_from_upcall ... what will be the mask ??");
     }
 
     atomic_read_relaxed(&enable_megaflows, &megaflow);
@@ -1348,6 +1361,7 @@ ukey_create_from_upcall(const struct upcall *upcall)
         size_t max_mpls;
 
         max_mpls = ofproto_dpif_get_max_mpls_depth(upcall->ofproto);
+        VLOG_WARN("ukey_create_from_upcall, calling odp_flow_key_from_mask");
         odp_flow_key_from_mask(&maskbuf, &upcall->xout.wc.masks, upcall->flow,
                                UINT32_MAX, max_mpls, recirc);
     }

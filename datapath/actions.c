@@ -166,7 +166,8 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	__be32 *new_mpls_lse;
 	struct ethhdr *hdr;
 
-	printk(KERN_WARNING "push_mpls: skb->mac_len: %d)\n",skb->mac_len);
+	printk(KERN_WARNING "push_mpls: skb->mac_len: %d\n",skb->mac_len);
+	printk(KERN_WARNING "push_mpls: skb->mac_header: %d\n",skb->mac_header);
 	printk_skb(skb);
 
 	/* Networking stack do not allow simultaneous Tunnel and MPLS GSO. */
@@ -178,13 +179,16 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	}
 
 	printk(KERN_WARNING "push_mpls: A FIXME\n");
+	printk_skb(skb);
 
 	if (skb_cow_head(skb, MPLS_HLEN) < 0)
 		return -ENOMEM;
 
 	printk(KERN_WARNING "push_mpls: B FIXME\n");
+	printk_skb(skb);
 	skb_push(skb, MPLS_HLEN);
 	printk(KERN_WARNING "push_mpls: B1 FIXME (mac_len: %d)\n",skb->mac_len);
+	printk_skb(skb);
 	if (skb->mac_len) {
 		printk(KERN_WARNING "push_mpls: before memmove %d <- %d (len:%d)\n",skb_mac_header(skb)-MPLS_HLEN,skb_mac_header(skb),skb->mac_len);
 		printk(KERN_WARNING "push_mpls: skb->head: %d",skb->head);
@@ -196,6 +200,7 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	}
 
 	printk(KERN_WARNING "push_mpls: C FIXME\n");
+	printk_skb(skb);
 	new_mpls_lse = (__be32 *)skb_mpls_header(skb);
 	*new_mpls_lse = mpls->mpls_lse;
 
@@ -230,11 +235,15 @@ static int pop_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	struct ethhdr *hdr;
 	int err;
 
+
 	printk(KERN_WARNING "pop_mpls: skb->mac_len: %d\n", skb->mac_len);
+	printk_skb(skb);
 
 	err = make_writable(skb, skb->mac_len + MPLS_HLEN);
-	if (unlikely(err))
+	if (unlikely(err)) {
+		printk(KERN_WARNING "pop_mpls: err, cannot make_writable\n");
 		return err;
+	}
 
 	if (skb->ip_summed == CHECKSUM_COMPLETE)
 		skb->csum = csum_sub(skb->csum,
@@ -243,8 +252,10 @@ static int pop_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 
 	memmove(skb_mac_header(skb) + MPLS_HLEN, skb_mac_header(skb),
 		skb->mac_len);
+	printk_skb(skb);
 
 	__skb_pull(skb, MPLS_HLEN);
+	printk_skb(skb);
 	skb_reset_mac_header(skb);
 
 	if (skb->mac_len) {
@@ -253,9 +264,13 @@ static int pop_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 		*/
 	       hdr = (struct ethhdr *)(skb_mpls_header(skb) - ETH_HLEN);
 	       hdr->h_proto = ethertype;
+	       printk_skb(skb);
 	}
+
+	printk(KERN_WARNING "pop_mpls: skb->protocol: %llx\n", htons(skb->protocol));
 	if (eth_p_mpls(skb->protocol))   /* looks incorrect: if skb->protocol is not mpls we should be popping in the first place */
 		skb->protocol = ethertype;
+	printk(KERN_WARNING "pop_mpls: skb->protocol: %llx\n", htons(skb->protocol));
 
 	invalidate_flow_key(key);
 	return 0;
@@ -417,6 +432,9 @@ static int pop_eth(struct sk_buff *skb, struct sw_flow_key *key)
 static int push_eth(struct sk_buff *skb, struct sw_flow_key *key,
 		    const struct ovs_action_push_eth *ethh)
 {
+	printk(KERN_WARNING "push_eth: 1 skb->mac_len: %d\n", skb->mac_len);
+	printk(KERN_WARNING "push_eth: 1 skb->network_header: %d\n", skb->network_header);
+	printk(KERN_WARNING "push_eth: 1 skb->mac_header: %d\n", skb->mac_header);
 	/* De-accelerate any hardware accelerated VLAN tag added to a previous
 	 * Ethernet header */
 	if (unlikely(vlan_tx_tag_present(skb))) {
@@ -430,18 +448,35 @@ static int push_eth(struct sk_buff *skb, struct sw_flow_key *key,
 	if (skb_cow_head(skb, ETH_HLEN) < 0)
 		return -ENOMEM;
 
+	printk(KERN_WARNING "push_eth: 2 skb->mac_len: %d\n", skb->mac_len);
+	printk(KERN_WARNING "push_eth: 2 skb->network_header: %d\n", skb->network_header);
+	printk(KERN_WARNING "push_eth: 2 skb->mac_header: %d\n", skb->mac_header);
 	skb_push(skb, ETH_HLEN);
+	printk(KERN_WARNING "push_eth: 3 skb->mac_len: %d\n", skb->mac_len);
+	printk(KERN_WARNING "push_eth: 3 skb->network_header: %d\n", skb->network_header);
+	printk(KERN_WARNING "push_eth: 3 skb->mac_header: %d\n", skb->mac_header);
 	skb_reset_mac_header(skb);
-	skb_reset_mac_len(skb);
+	printk(KERN_WARNING "push_eth: 4 skb->mac_len: %d\n", skb->mac_len);
+	printk(KERN_WARNING "push_eth: 4 skb->network_header: %d\n", skb->network_header);
+	printk(KERN_WARNING "push_eth: 4 skb->mac_header: %d\n", skb->mac_header);
+	/*skb_reset_mac_len(skb); /* does not work because network_header is not necessarily correctly set, 
+	case of MPLS, use of skb_set_network_header in key_extract for mpls */
+	skb->mac_len = ETH_HLEN; 
+	printk(KERN_WARNING "push_eth: 5 skb->mac_len: %d\n", skb->mac_len);
 
 	ether_addr_copy(eth_hdr(skb)->h_source, ethh->addresses.eth_src);
+	printk(KERN_WARNING "push_eth: 6 skb->mac_len: %d\n", skb->mac_len);
 	ether_addr_copy(eth_hdr(skb)->h_dest, ethh->addresses.eth_dst);
+	printk(KERN_WARNING "push_eth: 7 skb->mac_len: %d\n", skb->mac_len);
 	eth_hdr(skb)->h_proto = ethh->eth_type;
+	printk(KERN_WARNING "push_eth: 8 skb->mac_len: %d\n", skb->mac_len);
 
 	ovs_skb_postpush_rcsum(skb, skb->data, ETH_HLEN);
+	printk(KERN_WARNING "push_eth: 9 skb->mac_len: %d\n", skb->mac_len);
 
 	skb->protocol = ethh->eth_type;
 	invalidate_flow_key(key);
+	printk(KERN_WARNING "push_eth: 10 skb->mac_len: %d\n", skb->mac_len);
 	return 0;
 }
 

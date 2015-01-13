@@ -56,6 +56,7 @@
 #include "ovs-router.h"
 #include "tnl-ports.h"
 #include "tunnel.h"
+#include "flow.h"
 #include "openvswitch/vlog.h"
 
 COVERAGE_DEFINE(xlate_actions);
@@ -3829,6 +3830,8 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
     struct flow *flow = &ctx->xin->flow;
     const struct ofpact *a;
 
+    char *mask_str;
+
     if (ovs_native_tunneling_is_on(ctx->xbridge->ofproto)) {
         tnl_arp_snoop(flow, wc, ctx->xbridge->name);
     }
@@ -4139,6 +4142,9 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
         }
     VLOG_WARN("do_xlate_actions / end case");
     }
+    mask_str = flow_to_string(&wc->masks);
+    VLOG_WARN("do_xlate_actions loop: wc->masks: 0x%x",mask_str);
+    free(mask_str);
 }
 
 void
@@ -4354,6 +4360,7 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
     size_t ofpacts_len;
     bool tnl_may_send;
     bool is_icmp;
+    struct ds key_ds;
 
     VLOG_WARN("xlate_actions");
     VLOG_WARN("xlate_actions: TM FIXME FIXME: add tracing of xout->actions content size here...");
@@ -4435,6 +4442,10 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
     ctx.was_mpls = false;
 
     if (!xin->ofpacts && !ctx.rule) {
+        char *flow_str = flow_to_string(flow);
+        VLOG_WARN("xlate_actions: flow: %s", flow_str);
+        free(flow_str);
+
         VLOG_WARN("xlate_actions: before rule_dpif_lookup");
         rule = rule_dpif_lookup(ctx.xbridge->ofproto, flow,
                                 xin->skip_wildcards ? NULL : wc,

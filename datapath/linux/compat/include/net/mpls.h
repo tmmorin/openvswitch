@@ -31,9 +31,10 @@ static inline bool eth_p_mpls(__be16 eth_type)
  * label stack lies between the end of the mac header and the network
  * header. That is, for MPLS skbs the end of the mac header
  * is the top of the MPLS label stack.
+ * When there is no MAC header, the MPLS header is the top of the packet.
  */
 static inline unsigned char *skb_mpls_header(struct sk_buff *skb)
 {
-	return skb_mac_header(skb) + skb->mac_len;
+	return skb->mac_len ? skb_mac_header(skb) + skb->mac_len : skb->data;
 }
 #endif /* _NET_MPLS_WRAPPER_H */

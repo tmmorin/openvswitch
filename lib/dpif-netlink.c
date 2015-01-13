@@ -1585,8 +1585,9 @@ dpif_netlink_operate__(struct dpif_netlink *dpif,
                 flow.nlmsg_flags |= NLM_F_ECHO;
                 aux->txn.reply = &aux->reply;
             }
-            VLOG_WARN("dpif_netlink_operate__ dpif_netlink_flow_to_ofpbuf"); 
+            VLOG_WARN("dpif_netlink_operate__ before dpif_netlink_flow_to_ofpbuf"); 
             dpif_netlink_flow_to_ofpbuf(&flow, &aux->request);
+            VLOG_WARN("dpif_netlink_operate__ after dpif_netlink_flow_to_ofpbuf"); 
             break;
 
         case DPIF_OP_FLOW_DEL:
@@ -1603,10 +1604,10 @@ dpif_netlink_operate__(struct dpif_netlink *dpif,
         case DPIF_OP_EXECUTE:
             VLOG_WARN("dpif_netlink_operate__ DPIF_OP_EXECUTE"); 
             execute = &op->u.execute;
-        VLOG_WARN("dpif_netlink_operate__ before dpif_netlink_encode_execute"); 
+            VLOG_WARN("dpif_netlink_operate__ before dpif_netlink_encode_execute"); 
             dpif_netlink_encode_execute(dpif->dp_ifindex, execute,
                                         &aux->request);
-        VLOG_WARN("dpif_netlink_operate__ after dpif_netlink_encode_execute"); 
+            VLOG_WARN("dpif_netlink_operate__ after dpif_netlink_encode_execute"); 
             break;
 
         case DPIF_OP_FLOW_GET:
@@ -2767,6 +2768,7 @@ dpif_netlink_flow_to_ofpbuf(const struct dpif_netlink_flow *flow,
                             struct ofpbuf *buf)
 {
     struct ovs_header *ovs_header;
+    struct ds ds;
 
     VLOG_WARN("dpif_netlink_flow_to_ofpbuf");
     nl_msg_put_genlmsghdr(buf, 0, ovs_flow_family,
@@ -2787,11 +2789,30 @@ dpif_netlink_flow_to_ofpbuf(const struct dpif_netlink_flow *flow,
     }
     if (!flow->ufid_terse || !flow->ufid_present) {
         if (flow->key_len) {
+    	    VLOG_WARN("dpif_netlink_flow_to_ofpbuf: adding flow->key to netlink");
+
+	    ds_init(&ds);
+            odp_flow_key_format(flow->key, flow->key_len, &ds);
+
+    	    VLOG_WARN("dpif_netlink_flow_to_ofpbuf: flow->key: %s", ds_cstr(&ds) );
+	    ds_destroy(&ds);
+
+
             nl_msg_put_unspec(buf, OVS_FLOW_ATTR_KEY,
                               flow->key, flow->key_len);
         }
 
         if (flow->mask_len) {
+
+	    if (flow->key_len) {
+		    ds_init(&ds);
+		    odp_flow_format(flow->key, flow->key_len, flow->mask, flow->mask_len, NULL, &ds, true);
+
+	    	    VLOG_WARN("dpif_netlink_flow_to_ofpbuf: flow: %s", ds_cstr(&ds) );
+		    ds_destroy(&ds);
+	    }
+
+
             nl_msg_put_unspec(buf, OVS_FLOW_ATTR_MASK,
                               flow->mask, flow->mask_len);
         }

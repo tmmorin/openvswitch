@@ -3793,6 +3793,8 @@ rule_dpif_lookup_from_table(struct ofproto_dpif *ofproto, struct flow *flow,
     struct rule_dpif *rule;
     uint8_t next_id;
 
+    VLOG_WARN("rule_dpif_lookup_from_table");
+
     /* We always unwildcard nw_frag (for IP), so they
      * need not be unwildcarded here. */
     if (flow->nw_frag & FLOW_NW_FRAG_ANY
@@ -3843,6 +3845,7 @@ rule_dpif_lookup_from_table(struct ofproto_dpif *ofproto, struct flow *flow,
                                stats->n_packets, &orig);
         }
         if (rule) {
+    VLOG_WARN("rule_dpif_lookup_from_table: we have a match");
             goto out;   /* Match. */
         }
         if (honor_table_miss) {
@@ -3856,6 +3859,7 @@ rule_dpif_lookup_from_table(struct ofproto_dpif *ofproto, struct flow *flow,
     }
     /* Miss. */
     rule = ofproto->no_packet_in_rule;
+    VLOG_WARN("rule_dpif_lookup_from_table: match no_packet_in rule");
     if (may_packet_in) {
         if (miss_config == OFPUTIL_TABLE_MISS_CONTINUE
             || miss_config == OFPUTIL_TABLE_MISS_CONTROLLER) {
@@ -3867,10 +3871,12 @@ rule_dpif_lookup_from_table(struct ofproto_dpif *ofproto, struct flow *flow,
                              old_in_port);
             } else if (!(port->up.pp.config & OFPUTIL_PC_NO_PACKET_IN)) {
                 rule = ofproto->miss_rule;
+    VLOG_WARN("rule_dpif_lookup_from_table: match MISS rule");
             }
         } else if (miss_config == OFPUTIL_TABLE_MISS_DEFAULT &&
                    connmgr_wants_packet_in_on_miss(ofproto->up.connmgr)) {
             rule = ofproto->miss_rule;
+    VLOG_WARN("rule_dpif_lookup_from_table: match MISS rule");
         }
     }
     if (take_ref) {

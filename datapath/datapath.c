@@ -569,8 +569,10 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	err = ovs_nla_copy_actions(a[OVS_PACKET_ATTR_ACTIONS],
 				   &flow->key, &acts, log);
 	printk(KERN_WARNING "ovs_packet_cmd_execute: post-nlacopyactions packet->mac_len: %d\n",packet->mac_len);
-	if (err)
+	if (err) {
+	        printk(KERN_WARNING "ovs_packet_cmd_execute: post-nlacopyactions: (err:%d)",err);
 		goto err_flow_free;
+	}
 
 	rcu_assign_pointer(flow->sf_acts, acts);
 	OVS_CB(packet)->egress_tun_info = NULL;
@@ -899,6 +901,8 @@ static int ovs_flow_cmd_new(struct sk_buff *skb, struct genl_info *info)
 		goto err_kfree_flow;
 
 	printk(KERN_WARNING "ovs_flow_cmd_new:2\n");
+	printk(KERN_WARNING "ovs_flow_cmd_new: before ovs_flow_mask_key\n");
+	printk(KERN_WARNING "ovs_flow_cmd_new: mask is before ovs_flow_mask_key\n");
 	ovs_flow_mask_key(&new_flow->key, &new_flow->unmasked_key, &mask);
 
 	printk(KERN_WARNING "ovs_flow_cmd_new:3\n");

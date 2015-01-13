@@ -466,9 +466,12 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 	if (key->phy.is_layer3) {
 		printk("key_extract: is_layer3\n");
 		key->eth.tci = 0;
-		printk(KERN_WARNING "key_extract: B1 skb->mac_len: %d\n",skb->mac_len);
+		printk(KERN_WARNING "key_extract: B1 (l3) skb->mac_len: %d\n",skb->mac_len);
+		skb_reset_network_header(skb); /* or skb_reset_mac_len breaks below */
+		skb_reset_mac_header(skb); /* or skb_reset_mac_len breaks below */
 	} else {
-		printk(KERN_WARNING "key_extract: B2 skb->mac_len: %d\n",skb->mac_len);
+		printk("key_extract: not layer3...\n");
+		printk(KERN_WARNING "key_extract: B2 (!l3) skb->mac_len: %d\n",skb->mac_len);
 		eth = eth_hdr(skb);
 		ether_addr_copy(key->eth.src, eth->h_source);
 		ether_addr_copy(key->eth.dst, eth->h_dest);
@@ -499,11 +502,17 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 	printk(KERN_WARNING "key_extract: C skb->mac_len: %d\n",skb->mac_len);
 	skb_reset_mac_len(skb);
 	printk(KERN_WARNING "key_extract: D skb->mac_len: %d\n",skb->mac_len);
+	printk(KERN_WARNING "key_extract: D skb->mac_header: %d\n",skb->mac_header);
 	__skb_push(skb, skb->data - skb_mac_header(skb));
 	printk(KERN_WARNING "key_extract: E skb->mac_len: %d\n",skb->mac_len);
 
-	printk("key_extract: is_layer3\n");
 
+	printk(KERN_WARNING "key_extract: key->eth.type == %llx\n",key->eth.type);
+	printk(KERN_WARNING "key_extract: skb->protocol == %llx\n",skb->protocol);
+
+	printk(KERN_WARNING "key_extract: skb->mac_len: %d\n",skb->mac_len);
+	printk(KERN_WARNING "key_extract: skb->mac_header: %d\n",skb->mac_header);
+	printk(KERN_WARNING "key_extract: skb->network_header: %d\n",skb->network_header);
 	/* Network layer. */
 	if (key->eth.type == htons(ETH_P_IP)) {
 		struct iphdr *nh;

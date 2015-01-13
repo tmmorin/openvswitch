@@ -2716,6 +2716,7 @@ parse_odp_key_mask_attr(const char *s, const struct simap *port_names,
     } SCAN_END(OVS_KEY_ATTR_VLAN);
 
     SCAN_SINGLE("eth_type(", ovs_be16, be16, OVS_KEY_ATTR_ETHERTYPE);
+    /* FIXME TM: need same for PACKET_ETHERTYPE */
 
     SCAN_BEGIN("mpls(", struct ovs_key_mpls) {
         SCAN_FIELD("label=", mpls_label, mpls_lse);
@@ -2930,6 +2931,16 @@ odp_flow_key_from_flow__(struct ofpbuf *buf, const struct flow *flow,
     }
 
     if (flow->base_layer == LAYER_3) {
+	VLOG_WARN("odp_flow_key_from_flow__: is layer 3");
+    	/*nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, flow->metadata.packet_ethertype);*/
+	VLOG_WARN("odp_flow_key_from_flow__: dl_type is %llx",ntohs(flow->dl_type));
+        if (export_mask) {
+            nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, OVS_BE16_MAX);
+        } else {
+            nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, data->dl_type);
+	}
+	VLOG_WARN("odp_flow_key_from_flow__: tweaking OVS_KEY_ATTR_PACKET_ETHERTYPE");
+	VLOG_WARN("odp_flow_key_from_flow__: FIXME goto noethernet");
         goto noethernet;
     }
 
@@ -2994,6 +3005,7 @@ noethernet:
         struct ovs_key_mpls *mpls_key;
         int i, n;
 
+	VLOG_WARN("odp_flow_key_from_flow__: mpls...");
         n = flow_count_mpls_labels(flow, NULL);
         n = MIN(n, max_mpls_depth);
         mpls_key = nl_msg_put_unspec_uninit(buf, OVS_KEY_ATTR_MPLS,
@@ -3124,7 +3136,10 @@ odp_key_from_pkt_metadata(struct ofpbuf *buf, const struct pkt_metadata *md)
         nl_msg_put_odp_port(buf, OVS_KEY_ATTR_IN_PORT, md->in_port.odp_port);
     }
 
+    VLOG_WARN("odp_key_from_pkt_metadata: md->base_layer = %d",md->base_layer);
+    VLOG_WARN("odp_key_from_pkt_metadata: LAYER_3 = %d",LAYER_3);
     if (md->base_layer == LAYER_3) {
+    	VLOG_WARN("odp_key_from_pkt_metadata: put md->packet_ethertype in OVS_KEY_ATTR_PACKET_ETHERTYPE (%llx)", md->packet_ethertype);
         nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, md->packet_ethertype);
     } else {
         nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, htons(0));
@@ -3200,6 +3215,14 @@ odp_key_to_pkt_metadata(const struct nlattr *key, size_t key_len,
             md->packet_ethertype = htons(ETH_TYPE_IPV6);
             wanted_attrs &= ~(1u << OVS_KEY_ATTR_IPV6);
             break;
+        case OVS_KEY_ATTR_PACKET_ETHERTYPE:
+	    /* makes the above for IPv4 and IPv6 useless */
+            md->packet_ethertype = nl_attr_get_u16(nla);
+            wanted_attrs &= ~(1u << OVS_KEY_ATTR_PACKET_ETHERTYPE);
+	/* FIXME 
+		TM: what is done above for IPv4 and IPv5 and packet_ethertype is not doable
+ 		    for MPLS (which can be mapped to *two* ethertypes)
+		*/
         default:
             break;
         }
