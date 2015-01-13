@@ -41,7 +41,6 @@ struct flow_tnl {
     uint8_t ip_ttl;
     ovs_be16 tp_src;
     ovs_be16 tp_dst;
-    ovs_be16 ethertype;
 };
 
 /* Unfortunately, a "struct flow" sometimes has to handle OpenFlow port

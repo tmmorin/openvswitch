@@ -289,7 +289,6 @@ size_t ovs_tun_key_attr_size(void)
 		+ nla_total_size(256)  /* OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS */
 		+ nla_total_size(2)    /* OVS_TUNNEL_KEY_ATTR_TP_SRC */
 		+ nla_total_size(2);   /* OVS_TUNNEL_KEY_ATTR_TP_DST */
-		+ nla_total_size(2);   /* OVS_TUNNEL_KEY_ATTR_ETHTYPE */
 }
 
 size_t ovs_key_attr_size(void)
@@ -492,7 +491,6 @@ static int ipv4_tun_from_nlattr(const struct nlattr *attr,
 			[OVS_TUNNEL_KEY_ATTR_TP_DST] = sizeof(u16),
 			[OVS_TUNNEL_KEY_ATTR_OAM] = 0,
 			[OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS] = -1,
-			[OVS_TUNNEL_KEY_ATTR_ETHTYPE] = sizeof(u16),
 		};
 
 		if (type > OVS_TUNNEL_KEY_ATTR_MAX) {
@@ -555,10 +553,6 @@ static int ipv4_tun_from_nlattr(const struct nlattr *attr,
 
 			tun_flags |= TUNNEL_OPTIONS_PRESENT;
 			break;
-		case OVS_TUNNEL_KEY_ATTR_ETHTYPE:
-			SW_FLOW_KEY_PUT(match, eth.type,
-					nla_get_be16(a), is_mask);
-			break;
 		default:
 			OVS_NLERR(log, "Unknown IPv4 tunnel attribute %d",
 				  type);
@@ -591,11 +585,9 @@ static int ipv4_tun_from_nlattr(const struct nlattr *attr,
 
 static int __ipv4_tun_to_nlattr(struct sk_buff *skb,
 				const struct ovs_key_ipv4_tunnel *output,
-				const struct sw_flow_key *swkey,
 				const struct geneve_opt *tun_opts,
 				int swkey_tun_opts_len)
 {
-	//printk(KERN_WARNING "__ipv4_tun_to_nlattr:a\n");
 	if (output->tun_flags & TUNNEL_KEY &&
 	    nla_put_be64(skb, OVS_TUNNEL_KEY_ATTR_ID, output->tun_id))
 		return -EMSGSIZE;
@@ -613,7 +605,6 @@ static int __ipv4_tun_to_nlattr(struct sk_buff *skb,
 	if ((output->tun_flags & TUNNEL_DONT_FRAGMENT) &&
 	    nla_put_flag(skb, OVS_TUNNEL_KEY_ATTR_DONT_FRAGMENT))
 		return -EMSGSIZE;
-	//printk(KERN_WARNING "__ipv4_tun_to_nlattr:b\n");
 	if ((output->tun_flags & TUNNEL_CSUM) &&
 	    nla_put_flag(skb, OVS_TUNNEL_KEY_ATTR_CSUM))
 		return -EMSGSIZE;
@@ -626,51 +617,31 @@ static int __ipv4_tun_to_nlattr(struct sk_buff *skb,
 	if ((output->tun_flags & TUNNEL_OAM) &&
 	    nla_put_flag(skb, OVS_TUNNEL_KEY_ATTR_OAM))
 		return -EMSGSIZE;
-	//printk(KERN_WARNING "__ipv4_tun_to_nlattr:c\n");
 	if (tun_opts &&
 	    nla_put(skb, OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS,
 		    swkey_tun_opts_len, tun_opts))
 		return -EMSGSIZE;
 
-	//printk(KERN_WARNING "__ipv4_tun_to_nlattr:d\n");
-	//printk(KERN_WARNING "__ipv4_tun_to_nlattr:sb: %x\n", skb);
-
-        if (swkey) {
-		printk(KERN_WARNING "__ipv4_tun_to_nlattr: swkey->OVS_TUNNEL_KEY_ATTR_ETHTYPE,...\n");
-		if (swkey->phy.is_layer3 &&
-		    nla_put_be16(skb, OVS_TUNNEL_KEY_ATTR_ETHTYPE, skb->protocol))
-			return -EMSGSIZE;
-	} else {
-		printk(KERN_WARNING "no swkey, cannot determine if layer3\n");
-	}
-	printk(KERN_WARNING "__ipv4_tun_to_nlattr:z\n");
-		
 	return 0;
 }
 
 static int ipv4_tun_to_nlattr(struct sk_buff *skb,
 			      const struct ovs_key_ipv4_tunnel *output,
-		              const struct sw_flow_key *swkey,
 			      const struct geneve_opt *tun_opts,
 			      int swkey_tun_opts_len)
 {
 	struct nlattr *nla;
 	int err;
 
-	//printk(KERN_WARNING "ipv4_tun_to_nlattr:a\n");
 	nla = nla_nest_start(skb, OVS_KEY_ATTR_TUNNEL);
-	//printk(KERN_WARNING "ipv4_tun_to_nlattr:b\n");
 	if (!nla)
 		return -EMSGSIZE;
 
-	//printk(KERN_WARNING "ipv4_tun_to_nlattr:c\n");
-	err = __ipv4_tun_to_nlattr(skb, output, swkey, tun_opts, swkey_tun_opts_len);
-	//printk(KERN_WARNING "ipv4_tun_to_nlattr:d\n");
+	err = __ipv4_tun_to_nlattr(skb, output, tun_opts, swkey_tun_opts_len);
 	if (err)
 		return err;
 
 	nla_nest_end(skb, nla);
-	//printk(KERN_WARNING "ipv4_tun_to_nlattr:e\n");
 	return 0;
 }
 
@@ -678,7 +649,6 @@ int ovs_nla_put_egress_tunnel_key(struct sk_buff *skb,
 				  const struct ovs_tunnel_info *egress_tun_info)
 {
 	return __ipv4_tun_to_nlattr(skb, &egress_tun_info->tunnel,
-				    NULL,
 				    egress_tun_info->options,
 				    egress_tun_info->options_len);
 }
@@ -1302,7 +1272,7 @@ int ovs_nla_put_flow(const struct sw_flow_key *swkey,
 		if (output->tun_key.tun_flags & TUNNEL_OPTIONS_PRESENT)
 			opts = GENEVE_OPTS(output, swkey->tun_opts_len);
 
-		if (ipv4_tun_to_nlattr(skb, &output->tun_key, swkey, opts,
+		if (ipv4_tun_to_nlattr(skb, &output->tun_key, opts,
 				       swkey->tun_opts_len))
 			goto nla_put_failure;
 	}
@@ -2207,7 +2177,6 @@ static int set_action_to_attr(const struct nlattr *a, struct sk_buff *skb)
 			return -EMSGSIZE;
 
 		err = ipv4_tun_to_nlattr(skb, &tun_info->tunnel,
-					 NULL,
 					 tun_info->options_len ?
 						tun_info->options : NULL,
 					 tun_info->options_len);

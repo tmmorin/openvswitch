@@ -1305,7 +1305,6 @@ tunnel_key_attr_len(int type)
     case OVS_TUNNEL_KEY_ATTR_TP_DST: return 2;
     case OVS_TUNNEL_KEY_ATTR_OAM: return 0;
     case OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS: return -2;
-    case OVS_TUNNEL_KEY_ATTR_ETHTYPE: return 2;
     case __OVS_TUNNEL_KEY_ATTR_MAX:
         return -1;
     }
@@ -1404,9 +1403,6 @@ odp_tun_key_from_attr(const struct nlattr *attr, struct flow_tnl *tun)
             unknown = true;
             break;
         }
-        case OVS_TUNNEL_KEY_ATTR_ETHTYPE:
-            tun->ethertype = nl_attr_get_be16(a);
-            break;
         default:
             /* Allow this to show up as unexpected, if there are unknown
              * tunnel attribute, eventually resulting in ODP_FIT_TOO_MUCH. */

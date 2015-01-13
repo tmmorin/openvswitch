@@ -353,7 +353,6 @@ enum ovs_tunnel_key_attr {
 	OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS,        /* Array of Geneve options. */
 	OVS_TUNNEL_KEY_ATTR_TP_SRC,		/* be16 src Transport Port. */
 	OVS_TUNNEL_KEY_ATTR_TP_DST,		/* be16 dst Transport Port. */
-	OVS_TUNNEL_KEY_ATTR_ETHTYPE,		/* be16 dst Transport Port. */
 	__OVS_TUNNEL_KEY_ATTR_MAX
 };
 
