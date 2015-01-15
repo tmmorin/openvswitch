@@ -232,7 +232,6 @@ static inline void skb_frag_unref(struct sk_buff *skb, int f)
 #ifndef HAVE_SKB_RESET_MAC_LEN
 static inline void skb_reset_mac_len(struct sk_buff *skb)
 {
-	printk(KERN_WARNING "skb_reset_mac_len: %d - %d = %d\n", skb->network_header, skb->mac_header, skb->network_header - skb->mac_header);
 	skb->mac_len = skb->network_header - skb->mac_header;
 }
 #endif

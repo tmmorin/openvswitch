@@ -377,10 +377,6 @@ static int geneve_send(struct vport *vport, struct sk_buff *skb)
 	if (unlikely(skb->mac_len == 0))
 		return -EINVAL;
 
-	/* Reject layer 3 packets */
-	if (unlikely(skb->mac_len == 0))
-		return -EINVAL;
-
 	tun_key = &OVS_CB(skb)->egress_tun_info->tunnel;
 
 	/* Route lookup */

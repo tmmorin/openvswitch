@@ -110,9 +110,6 @@ static inline struct sk_buff *rpl_gre_handle_offloads(struct sk_buff *skb,
 {
 	if (skb_is_gso(skb) && skb_is_encapsulated(skb)) {
 		kfree_skb(skb);
-
-		printk(KERN_WARNING "fail in rpl_gre_handle_offloads\n");
-
 		return ERR_PTR(-ENOSYS);
 	}
 	return gre_handle_offloads(skb, gre_csum);
