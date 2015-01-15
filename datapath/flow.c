@@ -462,9 +462,8 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 	/* Link layer. */
 	if (key->phy.is_layer3) {
 		key->eth.tci = 0;
-                /* these skb_reset_* calls are needed or skb_reset_mac_len 
+                /* this skb_reset_mac_header call is needed or skb_reset_mac_len 
 		below will not set mac_len to zero */
-		skb_reset_network_header(skb); 
 		skb_reset_mac_header(skb);
 	} else {
 		eth = eth_hdr(skb);
@@ -486,9 +485,9 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 		if (unlikely(key->eth.type == htons(0)))
 			return -ENOMEM;
 
-		skb_reset_network_header(skb);
 	}
 
+	skb_reset_network_header(skb);
 	skb_reset_mac_len(skb);
 	__skb_push(skb, skb->data - skb_mac_header(skb));
 
@@ -598,8 +597,6 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 	} else if (eth_p_mpls(key->eth.type)) {
 		size_t stack_len = MPLS_HLEN;
 		
-		/* FIXME: unsure... */
-
 		/* In the presence of an MPLS label stack the end of the L2
 		 * header and the beginning of the L3 header differ.
 		 *

@@ -131,7 +131,6 @@ static bool match_validate(const struct sw_flow_match *match,
 			| (1ULL << OVS_KEY_ATTR_ND)
 			| (1ULL << OVS_KEY_ATTR_MPLS));
 
-
 	/* Always allowed mask fields. */
 	mask_allowed |= ((1ULL << OVS_KEY_ATTR_TUNNEL)
 		       | (1ULL << OVS_KEY_ATTR_IN_PORT)
@@ -140,7 +139,6 @@ static bool match_validate(const struct sw_flow_match *match,
 	/* If Ethertype is present, expect MAC addresses */
 	if (key_attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE))
 		key_expected |= 1ULL << OVS_KEY_ATTR_ETHERNET;
-
 
 	/* Check key attributes. */
 	if (match->key->eth.type == htons(ETH_P_ARP)
@@ -686,7 +684,6 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 		if (ipv4_tun_from_nlattr(a[OVS_KEY_ATTR_TUNNEL], match,
 					 is_mask, log))
 			return -EINVAL;
-
 		*attrs &= ~(1ULL << OVS_KEY_ATTR_TUNNEL);
 	}
 

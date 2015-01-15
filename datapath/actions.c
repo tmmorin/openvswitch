@@ -164,10 +164,8 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 		hdr->h_proto = mpls->mpls_ethertype;
 	}
 
-	if (!ovs_skb_get_inner_protocol(skb)) {
+	if (!ovs_skb_get_inner_protocol(skb))
 		ovs_skb_set_inner_protocol(skb, skb->protocol);
-	}
-
 	skb->protocol = mpls->mpls_ethertype;
 
 	invalidate_flow_key(key);
