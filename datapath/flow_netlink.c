@@ -1452,8 +1452,8 @@ static struct sw_flow_actions *nla_alloc_flow_actions(int size, bool log)
 	return sfa;
 }
 
-/* RCU callxack used by ovs_nla_free_flow_actions. */
-static void rcu_free_acts_callxack(struct rcu_head *rcu)
+/* RCU callback used by ovs_nla_free_flow_actions. */
+static void rcu_free_acts_callback(struct rcu_head *rcu)
 {
 	struct sw_flow_actions *sf_acts = container_of(rcu,
 			struct sw_flow_actions, rcu);
@@ -1465,7 +1465,7 @@ static void rcu_free_acts_callxack(struct rcu_head *rcu)
  */
 void ovs_nla_free_flow_actions(struct sw_flow_actions *sf_acts)
 {
-	call_rcu(&sf_acts->rcu, rcu_free_acts_callxack);
+	call_rcu(&sf_acts->rcu, rcu_free_acts_callback);
 }
 
 static struct nlattr *reserve_sfa_size(struct sw_flow_actions **sfa,
