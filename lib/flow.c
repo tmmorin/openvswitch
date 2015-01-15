@@ -42,7 +42,6 @@
 
 VLOG_DEFINE_THIS_MODULE(flow);
 
-
 COVERAGE_DEFINE(flow_extract);
 COVERAGE_DEFINE(miniflow_malloc);
 
@@ -211,12 +210,9 @@ parse_mpls(void **datap, size_t *sizep)
     const struct mpls_hdr *mh;
     int count = 0;
 
-    VLOG_WARN("parse_mpls");
     while ((mh = data_try_pull(datap, sizep, sizeof *mh))) {
         count++;
-    	VLOG_WARN("parse_mpls loop %d",count);
         if (mh->mpls_lse.lo & htons(1 << MPLS_BOS_SHIFT)) {
-    	    VLOG_WARN("parse_mpls bos hit");
             break;
         }
     }
@@ -415,8 +411,6 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
         frame = data;
         miniflow_push_uint32(mf, base_layer, LAYER_2);
 
-	VLOG_WARN("miniflow_extract: l2");
-
         /* Must have full Ethernet header to proceed. */
         if (OVS_UNLIKELY(size < sizeof(struct eth_header))) {
             goto out;
@@ -448,49 +442,18 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
         packet->l3_ofs = (char *)data - frame;
     } else {
         miniflow_push_uint32(mf, base_layer, LAYER_3);
-	VLOG_WARN("miniflow_extract: l3");
 
     	if (md && md->base_layer == LAYER_3)  {
-		VLOG_WARN("miniflow_extract: l3 bl ... md->packet_ethertype: %04x", md->packet_ethertype);
 		dl_type = md->packet_ethertype;
 
 		miniflow_push_be16(mf, dl_type, dl_type);
 		miniflow_push_be16(mf, vlan_tci, 0);
-	        VLOG_WARN("miniflow_extract: dl_type set to %0x",dl_type);
 
 		/* Parse mpls.  ---- FIXME: to factor-out with the above ----*/
 		if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
 		    int count;
 		    const void *mpls = data;
 
-			for (int i=0; i<4; i++) {
-				VLOG_WARN( "... %02"PRIx8" %02"PRIx8" %02"PRIx8" %02"PRIx8" %02"PRIx8" %02"PRIx8" %02"PRIx8" %02"PRIx8"  %02"PRIx8" %02"PRIx8" %02"PRIx8" %02"PRIx8" %02"PRIx8" %02"PRIx8" %02"PRIx8" %02"PRIx8"\n",
-					((uint8_t*)data)[16*i+0],
-					((uint8_t*)data)[16*i+1],
-					((uint8_t*)data)[16*i+2],
-					((uint8_t*)data)[16*i+3],
-					((uint8_t*)data)[16*i+4],
-					((uint8_t*)data)[16*i+5],
-					((uint8_t*)data)[16*i+6],
-					((uint8_t*)data)[16*i+7],
-					((uint8_t*)data)[16*i+8],
-					((uint8_t*)data)[16*i+9],
-					((uint8_t*)data)[16*i+10],
-					((uint8_t*)data)[16*i+11],
-					((uint8_t*)data)[16*i+12],
-					((uint8_t*)data)[16*i+13],
-					((uint8_t*)data)[16*i+14],
-					((uint8_t*)data)[16*i+15]
-				);
-			}
-
-		    VLOG_WARN("data: %02x",data);
-		    VLOG_WARN("data: %"PRIx8,((uint8_t*)data)[0]);
-		    VLOG_WARN("data: %"PRIx8,((uint8_t*)data)[1]);
-		    VLOG_WARN("data: %"PRIx8,((uint8_t*)data)[2]);
-		    VLOG_WARN("data: %"PRIx8,((uint8_t*)data)[3]);
-
-		    VLOG_WARN("miniflow_extract: l3 mpls");
 		    packet->l2_5_ofs = (char *)data - frame;
 		    count = parse_mpls(&data, &size);
 		    miniflow_push_words(mf, mpls_lse, mpls, count);
@@ -500,12 +463,13 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
 		/** FIXME ------- not true for all packets, needs to be correctly handled with a pop_mpls -> set ethertype */
                 packet->l3_ofs = (char *)data - frame;
 	} else {
-		VLOG_WARN("miniflow_extract: l3 just assume... (md->packet_ethertype is zero)");
+		/* AFAICT, this is obsolete and should not be hit anymore now that 
+		   packet ethertype is known */
+		VLOG_WARN("miniflow_extract: get_l3_eth_type called to find dl_type");
 		/* We assume L3 packets are either IPv4 or IPv6 */
 		dl_type = get_l3_eth_type(packet);  
 		miniflow_push_be16(mf, dl_type, dl_type);
 		miniflow_push_be16(mf, vlan_tci, 0);
-	        VLOG_WARN("miniflow_extract: dl_type set to %0x",dl_type);
 	}
     }
 
