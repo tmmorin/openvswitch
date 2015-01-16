@@ -3736,10 +3736,13 @@ rule_dpif_lookup(struct ofproto_dpif *ofproto, struct flow *flow,
 
 /* The returned rule (if any) is valid at least until the next RCU quiescent
  * period.  If the rule needs to stay around longer, a non-zero 'take_ref'
- * must be passed in to cause a reference to be taken on it. */
+ * must be passed in to cause a reference to be taken on it.
+ *
+ * 'flow' is non-const to allow for temporary modifications during the lookup.
+ * Any changes are restored before returning. */
 static struct rule_dpif *
 rule_dpif_lookup_in_table(struct ofproto_dpif *ofproto, uint8_t table_id,
-                          const struct flow *flow, struct flow_wildcards *wc,
+                          struct flow *flow, struct flow_wildcards *wc,
                           bool take_ref)
 {
     struct classifier *cls = &ofproto->up.tables[table_id].cls;
@@ -3779,7 +3782,10 @@ rule_dpif_lookup_in_table(struct ofproto_dpif *ofproto, uint8_t table_id,
  * on it before this returns.
  *
  * 'in_port' allows the lookup to take place as if the in port had the value
- * 'in_port'.  This is needed for resubmit action support. */
+ * 'in_port'.  This is needed for resubmit action support.
+ *
+ * 'flow' is non-const to allow for temporary modifications during the lookup.
+ * Any changes are restored before returning. */
 struct rule_dpif *
 rule_dpif_lookup_from_table(struct ofproto_dpif *ofproto, struct flow *flow,
                             struct flow_wildcards *wc, bool take_ref,
@@ -5460,11 +5466,8 @@ ofproto_dpif_free_recirc_id(struct ofproto_dpif *ofproto, uint32_t recirc_id)
         ovs_mutex_unlock(&backer->recirc_mutex);
         recirc_id_free(backer->rid_pool, node->recirc_id);
 
-        if (node->ofproto != ofproto) {
-            VLOG_ERR("recirc_id %"PRIu32", freed by incorrect ofproto (%s),"
-                     " expect ofproto (%s)", node->recirc_id, ofproto->up.name,
-                     node->ofproto->up.name);
-        }
+        /* 'recirc_id' should never be freed by non-owning 'ofproto'. */
+        ovs_assert(node->ofproto == ofproto);
 
         /* RCU postpone the free, since other threads may be referring
          * to 'node' at same time. */

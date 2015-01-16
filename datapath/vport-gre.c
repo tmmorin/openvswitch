@@ -183,9 +183,9 @@ static int __send(struct vport *vport, struct sk_buff *skb,
 	}
 
 	if (vlan_tx_tag_present(skb)) {
-		if (unlikely(!__vlan_put_tag(skb,
-					     skb->vlan_proto,
-					     vlan_tx_tag_get(skb)))) {
+		if (unlikely(!vlan_insert_tag_set_proto(skb,
+							skb->vlan_proto,
+							vlan_tx_tag_get(skb)))) {
 			err = -ENOMEM;
 			skb = NULL;
 			goto err_free_rt;
@@ -301,6 +301,10 @@ static int gre_send(struct vport *vport, struct sk_buff *skb)
 		kfree_skb(skb);
 		return -EINVAL;
 	}
+
+	/* Reject layer 3 packets */
+	if (unlikely(skb->mac_len == 0))
+		return -EINVAL;
 
 	hlen = ip_gre_calc_hlen(OVS_CB(skb)->egress_tun_info->tunnel.tun_flags);
 

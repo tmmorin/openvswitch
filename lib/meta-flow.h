@@ -299,6 +299,20 @@ enum OVS_PACKED_ENUM mf_field_id {
      */
     MFF_RECIRC_ID,
 
+    /* "conj_id".
+     *
+     * ID for "conjunction" actions.  Please refer to ovs-ofctl(8)
+     * documentation of "conjunction" for details.
+     *
+     * Type: be32.
+     * Maskable: no.
+     * Formatting: decimal.
+     * Prerequisites: none.
+     * Access: read-only.
+     * NXM: NXM_NX_CONJ_ID(37) since v2.4.
+     * OXM: none. */
+    MFF_CONJ_ID,
+
     /* "tun_id" (aka "tunnel_id").
      *
      * The "key" or "tunnel ID" or "VNI" in a packet received via a keyed
@@ -890,7 +904,7 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Maskable: bitwise.
      * Formatting: hexadecimal.
      * Prerequisites: IPv6.
-     * Access: read-only.
+     * Access: read/write.
      * NXM: NXM_NX_IPV6_LABEL(27) since v1.4.
      * OXM: OXM_OF_IPV6_FLABEL(28) since OF1.2 and v1.7.
      */
@@ -1329,7 +1343,7 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Maskable: bitwise.
      * Formatting: IPv6.
      * Prerequisites: ND.
-     * Access: read-only.
+     * Access: read/write.
      * NXM: NXM_NX_ND_TARGET(23) since v1.1.
      * OXM: OXM_OF_IPV6_ND_TARGET(31) since OF1.2 and v1.7.
      */
@@ -1343,7 +1357,7 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Maskable: bitwise.
      * Formatting: Ethernet.
      * Prerequisites: ND solicit.
-     * Access: read-only.
+     * Access: read/write.
      * NXM: NXM_NX_ND_SLL(24) since v1.1.
      * OXM: OXM_OF_IPV6_ND_SLL(32) since OF1.2 and v1.7.
      */
@@ -1357,7 +1371,7 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Maskable: bitwise.
      * Formatting: Ethernet.
      * Prerequisites: ND advert.
-     * Access: read-only.
+     * Access: read/write.
      * NXM: NXM_NX_ND_TLL(25) since v1.1.
      * OXM: OXM_OF_IPV6_ND_TLL(33) since OF1.2 and v1.7.
      */

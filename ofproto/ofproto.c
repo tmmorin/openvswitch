@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2010, 2011, 2012, 2013, 2014, 2015 Nicira, Inc.
+ * Copyright (c) 2009-2015 Nicira, Inc.
  * Copyright (c) 2010 Jean Tourrilhes - HP-Labs.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -2963,6 +2963,10 @@ query_tables(struct ofproto *ofproto,
 
             s->table_id = i;
             s->active_count = classifier_count(cls);
+            if (i == 0) {
+                s->active_count -= connmgr_count_hidden_rules(
+                    ofproto->connmgr);
+            }
         }
     } else {
         stats = NULL;
@@ -4144,6 +4148,54 @@ evict_rules_from_table(struct oftable *table, unsigned int extra_space)
     return error;
 }
 
+static bool
+is_conjunction(const struct ofpact *ofpacts, size_t ofpacts_len)
+{
+    return ofpacts_len > 0 && ofpacts->type == OFPACT_CONJUNCTION;
+}
+
+static void
+get_conjunctions(const struct ofputil_flow_mod *fm,
+                 struct cls_conjunction **conjsp, size_t *n_conjsp)
+    OVS_REQUIRES(ofproto_mutex)
+{
+    struct cls_conjunction *conjs = NULL;
+    int n_conjs = 0;
+
+    if (is_conjunction(fm->ofpacts, fm->ofpacts_len)) {
+        const struct ofpact *ofpact;
+        int i;
+
+        n_conjs = 0;
+        OFPACT_FOR_EACH (ofpact, fm->ofpacts, fm->ofpacts_len) {
+            n_conjs++;
+        }
+
+        conjs = xzalloc(n_conjs * sizeof *conjs);
+        i = 0;
+        OFPACT_FOR_EACH (ofpact, fm->ofpacts, fm->ofpacts_len) {
+            struct ofpact_conjunction *oc = ofpact_get_CONJUNCTION(ofpact);
+            conjs[i].clause = oc->clause;
+            conjs[i].n_clauses = oc->n_clauses;
+            conjs[i].id = oc->id;
+            i++;
+        }
+    }
+
+    *conjsp = conjs;
+    *n_conjsp = n_conjs;
+}
+
+static void
+set_conjunctions(struct rule *rule, const struct cls_conjunction *conjs,
+                 size_t n_conjs)
+    OVS_REQUIRES(ofproto_mutex)
+{
+    struct cls_rule *cr = CONST_CAST(struct cls_rule *, &rule->cr);
+
+    cls_rule_set_conjunctions(cr, conjs, n_conjs);
+}
+
 /* Implements OFPFC_ADD and the cases for OFPFC_MODIFY and OFPFC_MODIFY_STRICT
  * in which no matching flow already exists in the flow table.
  *
@@ -4290,7 +4342,12 @@ add_flow(struct ofproto *ofproto, struct ofputil_flow_mod *fm,
     }
 
     classifier_defer(&table->cls);
-    classifier_insert(&table->cls, &rule->cr);
+
+    struct cls_conjunction *conjs;
+    size_t n_conjs;
+    get_conjunctions(fm, &conjs, &n_conjs);
+    classifier_insert(&table->cls, &rule->cr, conjs, n_conjs);
+    free(conjs);
 
     error = ofproto->ofproto_class->rule_insert(rule);
     if (error) {
@@ -4402,8 +4459,43 @@ modify_flows__(struct ofproto *ofproto, struct ofputil_flow_mod *fm,
         }
 
         if (change_actions) {
+           /* We have to change the actions.  The rule's conjunctive match set
+            * is a function of its actions, so we need to update that too.  The
+            * conjunctive match set is used in the lookup process to figure
+            * which (if any) collection of conjunctive sets the packet matches
+            * with.  However, a rule with conjunction actions is never to be
+            * returned as a classifier lookup result.  To make sure a rule with
+            * conjunction actions is not returned as a lookup result, we update
+            * them in a carefully chosen order:
+            *
+            * - If we're adding a conjunctive match set where there wasn't one
+            *   before, we have to make the conjunctive match set available to
+            *   lookups before the rule's actions are changed, as otherwise
+            *   rule with a conjunction action could be returned as a lookup
+            *   result.
+            *
+            * - To clear some nonempty conjunctive set, we set the rule's
+            *   actions first, so that a lookup can't return a rule with
+            *   conjunction actions.
+            *
+            * - Otherwise, order doesn't matter for changing one nonempty
+            *   conjunctive match set to some other nonempty set, since the
+            *   rule's actions are not seen by the classifier, and hence don't
+            *   matter either before or after the change. */
+            struct cls_conjunction *conjs;
+            size_t n_conjs;
+            get_conjunctions(fm, &conjs, &n_conjs);
+
+            if (n_conjs) {
+                set_conjunctions(rule, conjs, n_conjs);
+            }
             ovsrcu_set(&rule->actions, rule_actions_create(fm->ofpacts,
                                                            fm->ofpacts_len));
+            if (!conjs) {
+                set_conjunctions(rule, conjs, n_conjs);
+            }
+
+            free(conjs);
         }
 
         if (change_actions || reset_counters) {
@@ -6698,7 +6790,7 @@ static void
 oftable_init(struct oftable *table)
 {
     memset(table, 0, sizeof *table);
-    classifier_init(&table->cls, flow_segment_u32s);
+    classifier_init(&table->cls, flow_segment_u64s);
     table->max_flows = UINT_MAX;
     atomic_init(&table->miss_config, OFPUTIL_TABLE_MISS_DEFAULT);
 

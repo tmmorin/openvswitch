@@ -324,4 +324,19 @@ static inline void __skb_fill_page_desc(struct sk_buff *skb, int i,
 }
 #endif
 
+#ifndef HAVE_SKB_ENSURE_WRITABLE
+#define skb_ensure_writable rpl_skb_ensure_writable
+int skb_ensure_writable(struct sk_buff *skb, int write_len);
+#endif
+
+#ifndef HAVE_SKB_VLAN_POP
+#define skb_vlan_pop rpl_skb_vlan_pop
+int skb_vlan_pop(struct sk_buff *skb);
+#endif
+
+#ifndef HAVE_SKB_VLAN_PUSH
+#define skb_vlan_push rpl_skb_vlan_push
+int skb_vlan_push(struct sk_buff *skb, __be16 vlan_proto, u16 vlan_tci);
+#endif
+
 #endif

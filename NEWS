@@ -1,5 +1,9 @@
 Post-v2.3.0
 ---------------------
+   - New support for a "conjunctive match" OpenFlow extension, which
+     allows constructing OpenFlow matches of the form "field1 in
+     {a,b,c...} AND field2 in {d,e,f...}" and generalizations.  For details,
+     see documentation fo the "conjunction" action in ovs-ofctl(8).
    - Add bash command-line completion support for ovs-appctl/ovs-dpctl/
      ovs-ofctl/ovsdb-tool commands.  Please check
      utilities/ovs-command-compgen.INSTALL.md for how to use.
@@ -18,6 +22,7 @@ Post-v2.3.0
      commands are now redundant and will be removed in a future
      release.  See ovs-vswitchd(8) for details.
    - OpenFlow:
+     * IPv6 flow label and neighbor discovery fields are now modifiable.
      * OpenFlow 1.5 (draft) extended registers are now supported.
      * The OpenFlow 1.5 (draft) actset_output field is now supported.
      * OpenFlow 1.5 (draft) Copy-Field action is now supported.
@@ -53,6 +58,9 @@ Post-v2.3.0
      This is generic tunneling mechanism for userspace datapath.
    - Support for multicast snooping (IGMPv1 and IGMPv2)
    - Support for Linux kernels up to 3.18.x
+   - The documentation now use the term 'destination' to mean one of syslog,
+     console or file for vlog logging instead of the previously used term
+     'facility'.
 
 
 v2.3.0 - 14 Aug 2014

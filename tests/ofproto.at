@@ -844,7 +844,9 @@ AT_SETUP([ofproto - set-field flow_mod commands (NXM)])
 OVS_VSWITCHD_START
 AT_CHECK([ovs-ofctl add-flow br0 ipv6,table=1,in_port=3,actions=drop])
 AT_CHECK([ovs-ofctl add-flow br0 ipv6,table=1,in_port=3,actions=set_field:fe80:0123:4567:890a:a6ba:dbff:fefe:59fa-\>ipv6_src])
+AT_CHECK([ovs-ofctl add-flow br0 icmp6,icmp_type=136,table=1,in_port=3,actions=set_field:fe80:8675:3097:890a:a6ba:dbff:f00d:59fa-\>nd_target,set_field:cc:dd:ee:ff:00:11-\>nd_tll])
 AT_CHECK([ovs-ofctl dump-flows br0 | ofctl_strip | sort], [0], [dnl
+ table=1, icmp6,in_port=3,icmp_type=136 actions=load:0xa6badbfff00d59fa->NXM_NX_ND_TARGET[[0..63]],load:0xfe8086753097890a->NXM_NX_ND_TARGET[[64..127]],load:0xccddeeff0011->NXM_NX_ND_TLL[[]]
  table=1, ipv6,in_port=3 actions=load:0xa6badbfffefe59fa->NXM_NX_IPV6_SRC[[0..63]],load:0xfe8001234567890a->NXM_NX_IPV6_SRC[[64..127]]
 NXST_FLOW reply:
 ])
@@ -866,6 +868,19 @@ OFPST_FLOW reply (OF1.2):
 ])
 AT_CHECK([ovs-ofctl -O OpenFlow12 del-flows br0])
 AT_CHECK([ovs-ofctl -O OpenFlow12 dump-flows br0 | ofctl_strip], [0], [OFPST_FLOW reply (OF1.2):
+])
+OVS_VSWITCHD_STOP
+AT_CLEANUP
+
+AT_SETUP([ofproto - set-field flow_mod commands (OF1.2)])
+OVS_VSWITCHD_START
+AT_CHECK([ovs-ofctl -O OpenFlow12 add-flow br0 ipv6,table=1,in_port=3,actions=drop])
+AT_CHECK([ovs-ofctl -O OpenFlow12 add-flow br0 ipv6,table=1,in_port=3,actions=set_field:fe80:0123:4567:890a:a6ba:dbff:fefe:59fa-\>ipv6_src])
+AT_CHECK([ovs-ofctl -O OpenFlow12 add-flow br0 icmp6,icmp_type=136,table=1,in_port=3,actions=set_field:fe80:8675:3097:890a:a6ba:dbff:f00d:59fa-\>nd_target,set_field:cc:dd:ee:ff:00:11-\>nd_tll])
+AT_CHECK([ovs-ofctl -O OpenFlow12 dump-flows br0 | ofctl_strip | sort], [0], [dnl
+ table=1, icmp6,in_port=3,icmp_type=136 actions=set_field:fe80:8675:3097:890a:a6ba:dbff:f00d:59fa->nd_target,set_field:cc:dd:ee:ff:00:11->nd_tll
+ table=1, ipv6,in_port=3 actions=set_field:fe80:123:4567:890a:a6ba:dbff:fefe:59fa->ipv6_src
+OFPST_FLOW reply (OF1.2):
 ])
 OVS_VSWITCHD_STOP
 AT_CLEANUP
@@ -1306,6 +1321,58 @@ AT_CHECK([ovs-ofctl dump-tables br0], [0], [expout])
 OVS_VSWITCHD_STOP
 AT_CLEANUP
 
+dnl In-band and fail-open add "hidden rules" to table 0.  These rules shouldn't
+dnl be visible to OpenFlow.  This test checks that "dump-flows" and
+dnl "dump-tables" don't make them visible.
+AT_SETUP([ofproto - hidden rules not in table stats])
+# Use an IP address for a controller that won't actually exist: we
+# want to create in-band rules but we do not want to actually connect
+# to a controller (because that could mess about with our test).  The
+# Class E range 240.0.0.0 - 255.255.255.255 seems like a good choice.
+OVS_VSWITCHD_START([set-controller br0 tcp:240.0.0.1:6653])
+for i in 1 2 3 4 5; do ovs-appctl time/warp 1000; done
+
+# Check that no hidden flows are visible in OpenFlow.
+AT_CHECK([ovs-ofctl dump-flows br0], [0], [NXST_FLOW reply (xid=0x4):
+])
+
+# Check that some hidden flows related to 240.0.0.1 are actually in table 0.
+#
+# We discard flows that mention table_id because we only want table 0 flows,
+# which in OVS is implied by the absence of a table_id.
+AT_CHECK([ovs-appctl bridge/dump-flows br0], [0], [stdout])
+AT_CHECK([test `grep '240\.0\.0\.1' stdout | grep -v table_id= | wc -l` -gt 0])
+
+# Check that dump-tables doesn't count the hidden flows.
+(printf "OFPST_TABLE reply (xid=0x2):"
+ x=0
+ name=classifier
+ while test $x -lt 254; do
+   printf "
+  table %d (\"%s\"):
+    active=0, lookup=0, matched=0
+    max_entries=1000000
+    matching:
+      in_port: exact match or wildcard
+      eth_src: exact match or wildcard
+      eth_dst: exact match or wildcard
+      eth_type: exact match or wildcard
+      vlan_vid: exact match or wildcard
+      vlan_pcp: exact match or wildcard
+      ip_src: exact match or wildcard
+      ip_dst: exact match or wildcard
+      nw_proto: exact match or wildcard
+      nw_tos: exact match or wildcard
+      tcp_src: exact match or wildcard
+      tcp_dst: exact match or wildcard
+" $x $name
+   x=`expr $x + 1`
+   name=table$x
+ done) > expout
+AT_CHECK([ovs-ofctl dump-tables br0], [0], [expout])
+OVS_VSWITCHD_STOP(["/cannot find route for controller/d"])
+AT_CLEANUP
+
 AT_SETUP([ofproto - flow table configuration (OpenFlow 1.2)])
 OVS_VSWITCHD_START
 # Check the default configuration.
@@ -1328,7 +1395,7 @@ OVS_VSWITCHD_START
       instructions: apply_actions,clear_actions,write_actions,write_metadata$goto
       Write-Actions and Apply-Actions features:
         actions: output group set_field strip_vlan push_vlan mod_nw_ttl dec_ttl set_mpls_ttl dec_mpls_ttl push_mpls pop_mpls set_queue
-        supported on Set-Field: metadata in_port_oxm eth_src eth_dst vlan_vid vlan_pcp mpls_label mpls_tc ip_src ip_dst ipv6_src ipv6_dst ip_dscp nw_ecn arp_op arp_spa arp_tpa arp_sha arp_tha tcp_src tcp_dst udp_src udp_dst sctp_src sctp_dst
+        supported on Set-Field: metadata in_port_oxm eth_src eth_dst vlan_vid vlan_pcp mpls_label mpls_tc ip_src ip_dst ipv6_src ipv6_dst ipv6_label ip_dscp nw_ecn arp_op arp_spa arp_tpa arp_sha arp_tha tcp_src tcp_dst udp_src udp_dst sctp_src sctp_dst nd_target nd_sll nd_tll
     matching:
       metadata: exact match or wildcard
       in_port_oxm: exact match or wildcard
@@ -1413,10 +1480,11 @@ OVS_VSWITCHD_START
       instructions: meter,apply_actions,clear_actions,write_actions,write_metadata$goto
       Write-Actions and Apply-Actions features:
         actions: output group set_field strip_vlan push_vlan mod_nw_ttl dec_ttl set_mpls_ttl dec_mpls_ttl push_mpls pop_mpls set_queue
-        supported on Set-Field: tun_id tun_src tun_dst metadata in_port in_port_oxm pkt_mark reg0 reg1 reg2 reg3 reg4 reg5 reg6 reg7 xreg0 xreg1 xreg2 xreg3 eth_src eth_dst vlan_tci vlan_vid vlan_pcp mpls_label mpls_tc ip_src ip_dst ipv6_src ipv6_dst nw_tos ip_dscp nw_ecn nw_ttl arp_op arp_spa arp_tpa arp_sha arp_tha tcp_src tcp_dst udp_src udp_dst sctp_src sctp_dst
+        supported on Set-Field: tun_id tun_src tun_dst metadata in_port in_port_oxm pkt_mark reg0 reg1 reg2 reg3 reg4 reg5 reg6 reg7 xreg0 xreg1 xreg2 xreg3 eth_src eth_dst vlan_tci vlan_vid vlan_pcp mpls_label mpls_tc ip_src ip_dst ipv6_src ipv6_dst ipv6_label nw_tos ip_dscp nw_ecn nw_ttl arp_op arp_spa arp_tpa arp_sha arp_tha tcp_src tcp_dst udp_src udp_dst sctp_src sctp_dst nd_target nd_sll nd_tll
     matching:
       dp_hash: arbitrary mask
       recirc_id: exact match or wildcard
+      conj_id: exact match or wildcard
       tun_id: arbitrary mask
       tun_src: arbitrary mask
       tun_dst: arbitrary mask
@@ -1494,7 +1562,7 @@ AT_CHECK(
 # Check that the configuration was updated.
 mv expout orig-expout
 sed 's/classifier/main/
-74s/1000000/1024/' < orig-expout > expout
+75s/1000000/1024/' < orig-expout > expout
 AT_CHECK([ovs-ofctl -O OpenFlow13 dump-table-features br0 | sed '/^$/d
 /^OFPST_TABLE_FEATURES/d'], [0], [expout])
 OVS_VSWITCHD_STOP

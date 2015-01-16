@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2010, 2011, 2012, 2013, 2014 Nicira, Inc.
+ * Copyright (c) 2009, 2010, 2011, 2012, 2013, 2014, 2015 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,12 +31,64 @@ VLOG_DEFINE_THIS_MODULE(classifier);
 
 struct trie_ctx;
 
+/* A collection of "struct cls_conjunction"s currently embedded into a
+ * cls_match. */
+struct cls_conjunction_set {
+    /* Link back to the cls_match.
+     *
+     * cls_conjunction_set is mostly used during classifier lookup, and, in
+     * turn, during classifier lookup the most used member of
+     * cls_conjunction_set is the rule's priority, so we cache it here for fast
+     * access. */
+    struct cls_match *match;
+    int priority;               /* Cached copy of match->priority. */
+
+    /* Conjunction information.
+     *
+     * 'min_n_clauses' allows some optimization during classifier lookup. */
+    unsigned int n;             /* Number of elements in 'conj'. */
+    unsigned int min_n_clauses; /* Smallest 'n' among elements of 'conj'. */
+    struct cls_conjunction conj[];
+};
+
 /* Ports trie depends on both ports sharing the same ovs_be32. */
 #define TP_PORTS_OFS32 (offsetof(struct flow, tp_src) / 4)
 BUILD_ASSERT_DECL(TP_PORTS_OFS32 == offsetof(struct flow, tp_dst) / 4);
+BUILD_ASSERT_DECL(TP_PORTS_OFS32 % 2 == 0);
+#define TP_PORTS_OFS64 (TP_PORTS_OFS32 / 2)
+
+static size_t
+cls_conjunction_set_size(size_t n)
+{
+    return (sizeof(struct cls_conjunction_set)
+            + n * sizeof(struct cls_conjunction));
+}
+
+static struct cls_conjunction_set *
+cls_conjunction_set_alloc(struct cls_match *match,
+                          const struct cls_conjunction conj[], size_t n)
+{
+    if (n) {
+        size_t min_n_clauses = conj[0].n_clauses;
+        for (size_t i = 1; i < n; i++) {
+            min_n_clauses = MIN(min_n_clauses, conj[i].n_clauses);
+        }
+
+        struct cls_conjunction_set *set = xmalloc(cls_conjunction_set_size(n));
+        set->match = match;
+        set->priority = match->priority;
+        set->n = n;
+        set->min_n_clauses = min_n_clauses;
+        memcpy(set->conj, conj, n * sizeof *conj);
+        return set;
+    } else {
+        return NULL;
+    }
+}
 
 static struct cls_match *
-cls_match_alloc(const struct cls_rule *rule)
+cls_match_alloc(const struct cls_rule *rule,
+                const struct cls_conjunction conj[], size_t n)
 {
     int count = count_1bits(rule->match.flow.map);
 
@@ -49,6 +101,8 @@ cls_match_alloc(const struct cls_rule *rule)
     *CONST_CAST(int *, &cls_match->priority) = rule->priority;
     miniflow_clone_inline(CONST_CAST(struct miniflow *, &cls_match->flow),
                           &rule->match.flow, count);
+    ovsrcu_set_hidden(&cls_match->conj_set,
+                      cls_conjunction_set_alloc(cls_match, conj, n));
 
     return cls_match;
 }
@@ -199,6 +253,26 @@ cls_rule_destroy(struct cls_rule *rule)
     minimatch_destroy(&rule->match);
 }
 
+void
+cls_rule_set_conjunctions(struct cls_rule *cr,
+                          const struct cls_conjunction *conj, size_t n)
+{
+    struct cls_match *match = cr->cls_match;
+    struct cls_conjunction_set *old
+        = ovsrcu_get_protected(struct cls_conjunction_set *, &match->conj_set);
+    struct cls_conjunction *old_conj = old ? old->conj : NULL;
+    unsigned int old_n = old ? old->n : 0;
+
+    if (old_n != n || (n && memcmp(old_conj, conj, n * sizeof *conj))) {
+        if (old) {
+            ovsrcu_postpone(free, old);
+        }
+        ovsrcu_set(&match->conj_set,
+                   cls_conjunction_set_alloc(match, conj, n));
+    }
+}
+
+
 /* Returns true if 'a' and 'b' match the same packets at the same priority,
  * false if they differ in some way. */
 bool
@@ -240,7 +314,7 @@ classifier_init(struct classifier *cls, const uint8_t *flow_segments)
     cls->n_flow_segments = 0;
     if (flow_segments) {
         while (cls->n_flow_segments < CLS_MAX_INDICES
-               && *flow_segments < FLOW_U32S) {
+               && *flow_segments < FLOW_U64S) {
             cls->flow_segments[cls->n_flow_segments++] = *flow_segments++;
         }
     }
@@ -409,10 +483,9 @@ classifier_count(const struct classifier *cls)
 }
 
 static uint32_t
-hash_metadata(ovs_be64 metadata_)
+hash_metadata(ovs_be64 metadata)
 {
-    uint64_t metadata = (OVS_FORCE uint64_t) metadata_;
-    return hash_uint64(metadata);
+    return hash_uint64((OVS_FORCE uint64_t) metadata);
 }
 
 static struct cls_partition *
@@ -486,12 +559,13 @@ subtable_replace_head_rule(struct classifier *cls OVS_UNUSED,
  * superset of their flows and has higher priority.
  */
 const struct cls_rule *
-classifier_replace(struct classifier *cls, const struct cls_rule *rule)
+classifier_replace(struct classifier *cls, const struct cls_rule *rule,
+                   const struct cls_conjunction *conjs, size_t n_conjs)
 {
-    struct cls_match *new = cls_match_alloc(rule);
+    struct cls_match *new = cls_match_alloc(rule, conjs, n_conjs);
     struct cls_subtable *subtable;
     uint32_t ihash[CLS_MAX_INDICES];
-    uint8_t prev_be32ofs = 0;
+    uint8_t prev_be64ofs = 0;
     struct cls_match *head;
     size_t n_rules = 0;
     uint32_t basis;
@@ -508,11 +582,11 @@ classifier_replace(struct classifier *cls, const struct cls_rule *rule)
     /* Compute hashes in segments. */
     basis = 0;
     for (i = 0; i < subtable->n_indices; i++) {
-        ihash[i] = minimatch_hash_range(&rule->match, prev_be32ofs,
+        ihash[i] = minimatch_hash_range(&rule->match, prev_be64ofs,
                                         subtable->index_ofs[i], &basis);
-        prev_be32ofs = subtable->index_ofs[i];
+        prev_be64ofs = subtable->index_ofs[i];
     }
-    hash = minimatch_hash_range(&rule->match, prev_be32ofs, FLOW_U32S, &basis);
+    hash = minimatch_hash_range(&rule->match, prev_be64ofs, FLOW_U64S, &basis);
 
     head = find_equal(subtable, &rule->match.flow, hash);
     if (!head) {
@@ -593,6 +667,14 @@ classifier_replace(struct classifier *cls, const struct cls_rule *rule)
             }
 
             if (old) {
+                struct cls_conjunction_set *conj_set;
+
+                conj_set = ovsrcu_get_protected(struct cls_conjunction_set *,
+                                                &iter->conj_set);
+                if (conj_set) {
+                    ovsrcu_postpone(free, conj_set);
+                }
+
                 ovsrcu_postpone(free, iter);
                 old->cls_match = NULL;
 
@@ -650,9 +732,11 @@ classifier_replace(struct classifier *cls, const struct cls_rule *rule)
  * fixed fields, and priority).  Use classifier_find_rule_exactly() to find
  * such a rule. */
 void
-classifier_insert(struct classifier *cls, const struct cls_rule *rule)
+classifier_insert(struct classifier *cls, const struct cls_rule *rule,
+                  const struct cls_conjunction conj[], size_t n_conj)
 {
-    const struct cls_rule *displaced_rule = classifier_replace(cls, rule);
+    const struct cls_rule *displaced_rule
+        = classifier_replace(cls, rule, conj, n_conj);
     ovs_assert(!displaced_rule);
 }
 
@@ -669,12 +753,13 @@ classifier_remove(struct classifier *cls, const struct cls_rule *rule)
 {
     struct cls_partition *partition;
     struct cls_match *cls_match;
+    struct cls_conjunction_set *conj_set;
     struct cls_subtable *subtable;
     struct cls_match *prev;
     struct cls_match *next;
     int i;
     uint32_t basis = 0, hash, ihash[CLS_MAX_INDICES];
-    uint8_t prev_be32ofs = 0;
+    uint8_t prev_be64ofs = 0;
     size_t n_rules;
 
     cls_match = rule->cls_match;
@@ -704,11 +789,11 @@ classifier_remove(struct classifier *cls, const struct cls_rule *rule)
     ovs_assert(subtable);
 
     for (i = 0; i < subtable->n_indices; i++) {
-        ihash[i] = minimatch_hash_range(&rule->match, prev_be32ofs,
+        ihash[i] = minimatch_hash_range(&rule->match, prev_be64ofs,
                                         subtable->index_ofs[i], &basis);
-        prev_be32ofs = subtable->index_ofs[i];
+        prev_be64ofs = subtable->index_ofs[i];
     }
-    hash = minimatch_hash_range(&rule->match, prev_be32ofs, FLOW_U32S, &basis);
+    hash = minimatch_hash_range(&rule->match, prev_be64ofs, FLOW_U64S, &basis);
 
     /* Head rule.  Check if 'next' is an identical, lower-priority rule that
      * will replace 'rule' in the data structures. */
@@ -779,6 +864,11 @@ check_priority:
     }
 
 free:
+    conj_set = ovsrcu_get_protected(struct cls_conjunction_set *,
+                                    &cls_match->conj_set);
+    if (conj_set) {
+        ovsrcu_postpone(free, conj_set);
+    }
     ovsrcu_postpone(free, cls_match);
     cls->n_rules--;
 
@@ -808,24 +898,108 @@ trie_ctx_init(struct trie_ctx *ctx, const struct cls_trie *trie)
     ctx->lookup_done = false;
 }
 
-/* Finds and returns the highest-priority rule in 'cls' that matches 'flow'.
- * Returns a null pointer if no rules in 'cls' match 'flow'.  If multiple rules
- * of equal priority match 'flow', returns one arbitrarily.
+struct conjunctive_match {
+    struct hmap_node hmap_node;
+    uint32_t id;
+    uint64_t clauses;
+};
+
+static struct conjunctive_match *
+find_conjunctive_match__(struct hmap *matches, uint64_t id, uint32_t hash)
+{
+    struct conjunctive_match *m;
+
+    HMAP_FOR_EACH_IN_BUCKET (m, hmap_node, hash, matches) {
+        if (m->id == id) {
+            return m;
+        }
+    }
+    return NULL;
+}
+
+static bool
+find_conjunctive_match(const struct cls_conjunction_set *set,
+                       unsigned int max_n_clauses, struct hmap *matches,
+                       struct conjunctive_match *cm_stubs, size_t n_cm_stubs,
+                       uint32_t *idp)
+{
+    const struct cls_conjunction *c;
+
+    if (max_n_clauses < set->min_n_clauses) {
+        return false;
+    }
+
+    for (c = set->conj; c < &set->conj[set->n]; c++) {
+        struct conjunctive_match *cm;
+        uint32_t hash;
+
+        if (c->n_clauses > max_n_clauses) {
+            continue;
+        }
+
+        hash = hash_int(c->id, 0);
+        cm = find_conjunctive_match__(matches, c->id, hash);
+        if (!cm) {
+            size_t n = hmap_count(matches);
+
+            cm = n < n_cm_stubs ? &cm_stubs[n] : xmalloc(sizeof *cm);
+            hmap_insert(matches, &cm->hmap_node, hash);
+            cm->id = c->id;
+            cm->clauses = UINT64_MAX << (c->n_clauses & 63);
+        }
+        cm->clauses |= UINT64_C(1) << c->clause;
+        if (cm->clauses == UINT64_MAX) {
+            *idp = cm->id;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void
+free_conjunctive_matches(struct hmap *matches,
+                         struct conjunctive_match *cm_stubs, size_t n_cm_stubs)
+{
+    if (hmap_count(matches) > n_cm_stubs) {
+        struct conjunctive_match *cm, *next;
+
+        HMAP_FOR_EACH_SAFE (cm, next, hmap_node, matches) {
+            if (!(cm >= cm_stubs && cm < &cm_stubs[n_cm_stubs])) {
+                free(cm);
+            }
+        }
+    }
+    hmap_destroy(matches);
+}
+
+/* Like classifier_lookup(), except that support for conjunctive matches can be
+ * configured with 'allow_conjunctive_matches'.  That feature is not exposed
+ * externally because turning off conjunctive matches is only useful to avoid
+ * recursion within this function itself.
  *
- * If a rule is found and 'wc' is non-null, bitwise-OR's 'wc' with the
- * set of bits that were significant in the lookup.  At some point
- * earlier, 'wc' should have been initialized (e.g., by
- * flow_wildcards_init_catchall()). */
-const struct cls_rule *
-classifier_lookup(const struct classifier *cls, const struct flow *flow,
-                  struct flow_wildcards *wc)
+ * 'flow' is non-const to allow for temporary modifications during the lookup.
+ * Any changes are restored before returning. */
+static const struct cls_rule *
+classifier_lookup__(const struct classifier *cls, struct flow *flow,
+                    struct flow_wildcards *wc, bool allow_conjunctive_matches)
 {
     const struct cls_partition *partition;
-    tag_type tags;
-    int best_priority = INT_MIN;
-    const struct cls_match *best;
     struct trie_ctx trie_ctx[CLS_MAX_TRIES];
-    struct cls_subtable *subtable;
+    const struct cls_match *match;
+    tag_type tags;
+
+    /* Highest-priority flow in 'cls' that certainly matches 'flow'. */
+    const struct cls_match *hard = NULL;
+    int hard_pri = INT_MIN;     /* hard ? hard->priority : INT_MIN. */
+
+    /* Highest-priority conjunctive flows in 'cls' matching 'flow'.  Since
+     * these are (components of) conjunctive flows, we can only know whether
+     * the full conjunctive flow matches after seeing multiple of them.  Thus,
+     * we refer to these as "soft matches". */
+    struct cls_conjunction_set *soft_stub[64];
+    struct cls_conjunction_set **soft = soft_stub;
+    size_t n_soft = 0, allocated_soft = ARRAY_SIZE(soft_stub);
+    int soft_pri = INT_MIN;    /* n_soft ? MAX(soft[*]->priority) : INT_MIN. */
 
     /* Synchronize for cls->n_tries and subtable->trie_plen.  They can change
      * when table configuration changes, which happens typically only on
@@ -861,23 +1035,212 @@ classifier_lookup(const struct classifier *cls, const struct flow *flow,
         trie_ctx_init(&trie_ctx[i], &cls->tries[i]);
     }
 
-    best = NULL;
-    PVECTOR_FOR_EACH_PRIORITY(subtable, best_priority, 2,
-                              sizeof(struct cls_subtable), &cls->subtables) {
-        const struct cls_match *rule;
+    /* Main loop. */
+    struct cls_subtable *subtable;
+    PVECTOR_FOR_EACH_PRIORITY (subtable, hard_pri, 2, sizeof *subtable,
+                               &cls->subtables) {
+        struct cls_conjunction_set *conj_set;
 
+        /* Skip subtables not in our partition. */
         if (!tag_intersects(tags, subtable->tag)) {
             continue;
         }
 
-        rule = find_match_wc(subtable, flow, trie_ctx, cls->n_tries, wc);
-        if (rule && rule->priority > best_priority) {
-            best_priority = rule->priority;
-            best = rule;
+        /* Skip subtables with no match, or where the match is lower-priority
+         * than some certain match we've already found. */
+        match = find_match_wc(subtable, flow, trie_ctx, cls->n_tries, wc);
+        if (!match || match->priority <= hard_pri) {
+            continue;
+        }
+
+        conj_set = ovsrcu_get(struct cls_conjunction_set *, &match->conj_set);
+        if (!conj_set) {
+            /* 'match' isn't part of a conjunctive match.  It's the best
+             * certain match we've got so far, since we know that it's
+             * higher-priority than hard_pri.
+             *
+             * (There might be a higher-priority conjunctive match.  We can't
+             * tell yet.) */
+            hard = match;
+            hard_pri = hard->priority;
+        } else if (allow_conjunctive_matches) {
+            /* 'match' is part of a conjunctive match.  Add it to the list. */
+            if (OVS_UNLIKELY(n_soft >= allocated_soft)) {
+                struct cls_conjunction_set **old_soft = soft;
+
+                allocated_soft *= 2;
+                soft = xmalloc(allocated_soft * sizeof *soft);
+                memcpy(soft, old_soft, n_soft * sizeof *soft);
+                if (old_soft != soft_stub) {
+                    free(old_soft);
+                }
+            }
+            soft[n_soft++] = conj_set;
+
+            /* Keep track of the highest-priority soft match. */
+            if (soft_pri < match->priority) {
+                soft_pri = match->priority;
+            }
         }
     }
 
-    return best ? best->cls_rule : NULL;
+    /* In the common case, at this point we have no soft matches and we can
+     * return immediately.  (We do the same thing if we have potential soft
+     * matches but none of them are higher-priority than our hard match.) */
+    if (hard_pri >= soft_pri) {
+        if (soft != soft_stub) {
+            free(soft);
+        }
+        return hard ? hard->cls_rule : NULL;
+    }
+
+    /* At this point, we have some soft matches.  We might also have a hard
+     * match; if so, its priority is lower than the highest-priority soft
+     * match. */
+
+    /* Soft match loop.
+     *
+     * Check whether soft matches are real matches. */
+    for (;;) {
+        /* Delete soft matches that are null.  This only happens in second and
+         * subsequent iterations of the soft match loop, when we drop back from
+         * a high-priority soft match to a lower-priority one.
+         *
+         * Also, delete soft matches whose priority is less than or equal to
+         * the hard match's priority.  In the first iteration of the soft
+         * match, these can be in 'soft' because the earlier main loop found
+         * the soft match before the hard match.  In second and later iteration
+         * of the soft match loop, these can be in 'soft' because we dropped
+         * back from a high-priority soft match to a lower-priority soft match.
+         *
+         * It is tempting to delete soft matches that cannot be satisfied
+         * because there are fewer soft matches than required to satisfy any of
+         * their conjunctions, but we cannot do that because there might be
+         * lower priority soft or hard matches with otherwise identical
+         * matches.  (We could special case those here, but there's no
+         * need--we'll do so at the bottom of the soft match loop anyway and
+         * this duplicates less code.)
+         *
+         * It's also tempting to break out of the soft match loop if 'n_soft ==
+         * 1' but that would also miss lower-priority hard matches.  We could
+         * special case that also but again there's no need. */
+        for (int i = 0; i < n_soft; ) {
+            if (!soft[i] || soft[i]->priority <= hard_pri) {
+                soft[i] = soft[--n_soft];
+            } else {
+                i++;
+            }
+        }
+        if (!n_soft) {
+            break;
+        }
+
+        /* Find the highest priority among the soft matches.  (We know this
+         * must be higher than the hard match's priority; otherwise we would
+         * have deleted all of the soft matches in the previous loop.)  Count
+         * the number of soft matches that have that priority. */
+        soft_pri = INT_MIN;
+        int n_soft_pri = 0;
+        for (int i = 0; i < n_soft; i++) {
+            if (soft[i]->priority > soft_pri) {
+                soft_pri = soft[i]->priority;
+                n_soft_pri = 1;
+            } else if (soft[i]->priority == soft_pri) {
+                n_soft_pri++;
+            }
+        }
+        ovs_assert(soft_pri > hard_pri);
+
+        /* Look for a real match among the highest-priority soft matches.
+         *
+         * It's unusual to have many conjunctive matches, so we use stubs to
+         * avoid calling malloc() in the common case.  An hmap has a built-in
+         * stub for up to 2 hmap_nodes; possibly, we would benefit a variant
+         * with a bigger stub. */
+        struct conjunctive_match cm_stubs[16];
+        struct hmap matches;
+
+        hmap_init(&matches);
+        for (int i = 0; i < n_soft; i++) {
+            uint32_t id;
+
+            if (soft[i]->priority == soft_pri
+                && find_conjunctive_match(soft[i], n_soft_pri, &matches,
+                                          cm_stubs, ARRAY_SIZE(cm_stubs),
+                                          &id)) {
+                uint32_t saved_conj_id = flow->conj_id;
+                const struct cls_rule *rule;
+
+                flow->conj_id = id;
+                rule = classifier_lookup__(cls, flow, wc, false);
+                flow->conj_id = saved_conj_id;
+
+                if (rule) {
+                    free_conjunctive_matches(&matches,
+                                             cm_stubs, ARRAY_SIZE(cm_stubs));
+                    if (soft != soft_stub) {
+                        free(soft);
+                    }
+                    return rule;
+                }
+            }
+        }
+        free_conjunctive_matches(&matches, cm_stubs, ARRAY_SIZE(cm_stubs));
+
+        /* There's no real match among the highest-priority soft matches.
+         * However, if any of those soft matches has a lower-priority but
+         * otherwise identical flow match, then we need to consider those for
+         * soft or hard matches.
+         *
+         * The next iteration of the soft match loop will delete any null
+         * pointers we put into 'soft' (and some others too). */
+        for (int i = 0; i < n_soft; i++) {
+            if (soft[i]->priority != soft_pri) {
+                continue;
+            }
+
+            /* Find next-lower-priority flow with identical flow match. */
+            match = next_rule_in_list(soft[i]->match);
+            if (match) {
+                soft[i] = ovsrcu_get(struct cls_conjunction_set *,
+                                     &match->conj_set);
+                if (!soft[i]) {
+                    /* The flow is a hard match; don't treat as a soft
+                     * match. */
+                    if (match->priority > hard_pri) {
+                        hard = match;
+                        hard_pri = hard->priority;
+                    }
+                }
+            } else {
+                /* No such lower-priority flow (probably the common case). */
+                soft[i] = NULL;
+            }
+        }
+    }
+
+    if (soft != soft_stub) {
+        free(soft);
+    }
+    return hard ? hard->cls_rule : NULL;
+}
+
+/* Finds and returns the highest-priority rule in 'cls' that matches 'flow'.
+ * Returns a null pointer if no rules in 'cls' match 'flow'.  If multiple rules
+ * of equal priority match 'flow', returns one arbitrarily.
+ *
+ * If a rule is found and 'wc' is non-null, bitwise-OR's 'wc' with the
+ * set of bits that were significant in the lookup.  At some point
+ * earlier, 'wc' should have been initialized (e.g., by
+ * flow_wildcards_init_catchall()).
+ *
+ * 'flow' is non-const to allow for temporary modifications during the lookup.
+ * Any changes are restored before returning. */
+const struct cls_rule *
+classifier_lookup(const struct classifier *cls, struct flow *flow,
+                  struct flow_wildcards *wc)
+{
+    return classifier_lookup__(cls, flow, wc, true);
 }
 
 /* Finds and returns a rule in 'cls' with exactly the same priority and
@@ -943,7 +1306,7 @@ classifier_rule_overlaps(const struct classifier *cls,
     /* Iterate subtables in the descending max priority order. */
     PVECTOR_FOR_EACH_PRIORITY (subtable, target->priority - 1, 2,
                                sizeof(struct cls_subtable), &cls->subtables) {
-        uint32_t storage[FLOW_U32S];
+        uint64_t storage[FLOW_U64S];
         struct minimask mask;
         const struct cls_rule *rule;
 
@@ -1148,7 +1511,7 @@ insert_subtable(struct classifier *cls, const struct minimask *mask)
     /* Check if the rest of the subtable's mask adds any bits,
      * and remove the last index if it doesn't. */
     if (index > 0) {
-        flow_wildcards_fold_minimask_range(&new, mask, prev, FLOW_U32S);
+        flow_wildcards_fold_minimask_range(&new, mask, prev, FLOW_U64S);
         if (flow_wildcards_equal(&new, &old)) {
             --index;
             *CONST_CAST(uint8_t *, &subtable->index_ofs[index]) = 0;
@@ -1227,9 +1590,10 @@ check_tries(struct trie_ctx trie_ctx[CLS_MAX_TRIES], unsigned int n_tries,
         if (field_plen[j]) {
             struct trie_ctx *ctx = &trie_ctx[j];
             uint8_t be32ofs = ctx->be32ofs;
+            uint8_t be64ofs = be32ofs / 2;
 
             /* Is the trie field within the current range of fields? */
-            if (be32ofs >= ofs.start && be32ofs < ofs.end) {
+            if (be64ofs >= ofs.start && be64ofs < ofs.end) {
                 /* On-demand trie lookup. */
                 if (!ctx->lookup_done) {
                     memset(&ctx->match_plens, 0, sizeof ctx->match_plens);
@@ -1281,12 +1645,12 @@ miniflow_and_mask_matches_flow(const struct miniflow *flow,
                                const struct minimask *mask,
                                const struct flow *target)
 {
-    const uint32_t *flowp = miniflow_get_u32_values(flow);
-    const uint32_t *maskp = miniflow_get_u32_values(&mask->masks);
+    const uint64_t *flowp = miniflow_get_values(flow);
+    const uint64_t *maskp = miniflow_get_values(&mask->masks);
     int idx;
 
     MAP_FOR_EACH_INDEX(idx, mask->masks.map) {
-        uint32_t diff = (*flowp++ ^ flow_u32_value(target, idx)) & *maskp++;
+        uint64_t diff = (*flowp++ ^ flow_u64_value(target, idx)) & *maskp++;
 
         if (diff) {
             return false;
@@ -1324,26 +1688,26 @@ miniflow_and_mask_matches_flow_wc(const struct miniflow *flow,
                                   const struct flow *target,
                                   struct flow_wildcards *wc)
 {
-    const uint32_t *flowp = miniflow_get_u32_values(flow);
-    const uint32_t *maskp = miniflow_get_u32_values(&mask->masks);
+    const uint64_t *flowp = miniflow_get_values(flow);
+    const uint64_t *maskp = miniflow_get_values(&mask->masks);
     int idx;
 
     MAP_FOR_EACH_INDEX(idx, mask->masks.map) {
-        uint32_t mask = *maskp++;
-        uint32_t diff = (*flowp++ ^ flow_u32_value(target, idx)) & mask;
+        uint64_t mask = *maskp++;
+        uint64_t diff = (*flowp++ ^ flow_u64_value(target, idx)) & mask;
 
         if (diff) {
             /* Only unwildcard if none of the differing bits is already
              * exact-matched. */
-            if (!(flow_u32_value(&wc->masks, idx) & diff)) {
+            if (!(flow_u64_value(&wc->masks, idx) & diff)) {
                 /* Keep one bit of the difference.  The selected bit may be
                  * different in big-endian v.s. little-endian systems. */
-                *flow_u32_lvalue(&wc->masks, idx) |= rightmost_1bit(diff);
+                *flow_u64_lvalue(&wc->masks, idx) |= rightmost_1bit(diff);
             }
             return false;
         }
         /* Fill in the bits that were looked at. */
-        *flow_u32_lvalue(&wc->masks, idx) |= mask;
+        *flow_u64_lvalue(&wc->masks, idx) |= mask;
     }
 
     return true;
@@ -1413,7 +1777,7 @@ find_match_wc(const struct cls_subtable *subtable, const struct flow *flow,
         }
         ofs.start = ofs.end;
     }
-    ofs.end = FLOW_U32S;
+    ofs.end = FLOW_U64S;
     /* Trie check for the final range. */
     if (check_tries(trie_ctx, n_tries, subtable->trie_plen, ofs, flow, wc)) {
         fill_range_wc(subtable, wc, ofs.start);
@@ -1438,7 +1802,7 @@ find_match_wc(const struct cls_subtable *subtable, const struct flow *flow,
 
         /* Unwildcard all bits in the mask upto the ports, as they were used
          * to determine there is no match. */
-        fill_range_wc(subtable, wc, TP_PORTS_OFS32);
+        fill_range_wc(subtable, wc, TP_PORTS_OFS64);
         return NULL;
     }
 
@@ -1727,12 +2091,11 @@ minimask_get_prefix_len(const struct minimask *minimask,
                         const struct mf_field *mf)
 {
     unsigned int n_bits = 0, mask_tz = 0; /* Non-zero when end of mask seen. */
-    uint8_t u32_ofs = mf->flow_be32ofs;
-    uint8_t u32_end = u32_ofs + mf->n_bytes / 4;
+    uint8_t be32_ofs = mf->flow_be32ofs;
+    uint8_t be32_end = be32_ofs + mf->n_bytes / 4;
 
-    for (; u32_ofs < u32_end; ++u32_ofs) {
-        uint32_t mask;
-        mask = ntohl((OVS_FORCE ovs_be32)minimask_get(minimask, u32_ofs));
+    for (; be32_ofs < be32_end; ++be32_ofs) {
+        uint32_t mask = ntohl(minimask_get_be32(minimask, be32_ofs));
 
         /* Validate mask, count the mask length. */
         if (mask_tz) {
@@ -1760,8 +2123,11 @@ minimask_get_prefix_len(const struct minimask *minimask,
 static const ovs_be32 *
 minimatch_get_prefix(const struct minimatch *match, const struct mf_field *mf)
 {
-    return miniflow_get_be32_values(&match->flow) +
-        count_1bits(match->flow.map & ((UINT64_C(1) << mf->flow_be32ofs) - 1));
+    return (OVS_FORCE const ovs_be32 *)
+        (miniflow_get_values(&match->flow)
+         + count_1bits(match->flow.map &
+                       ((UINT64_C(1) << mf->flow_be32ofs / 2) - 1)))
+        + (mf->flow_be32ofs & 1);
 }
 
 /* Insert rule in to the prefix tree.

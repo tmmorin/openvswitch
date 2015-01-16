@@ -2795,7 +2795,7 @@ parse_odp_key_mask_attr(const char *s, const struct simap *port_names,
         for (;;) {
             int retval;
 
-            s += strspn(s, ", \t\r\n");
+            s += strspn(s, delimiters);
             if (!*s) {
                 return -EINVAL;
             } else if (*s == ')') {
@@ -2887,6 +2887,8 @@ static void put_ipv6_key(const struct ovs_key_ipv6 *, struct flow *,
                          bool is_mask);
 static void get_arp_key(const struct flow *, struct ovs_key_arp *);
 static void put_arp_key(const struct ovs_key_arp *, struct flow *);
+static void get_nd_key(const struct flow *, struct ovs_key_nd *);
+static void put_nd_key(const struct ovs_key_nd *, struct flow *);
 
 /* These share the same layout. */
 union ovs_key_tp {
@@ -2927,9 +2929,9 @@ odp_flow_key_from_flow__(struct ofpbuf *buf, const struct flow *flow,
     }
 
     if (flow->base_layer == LAYER_3) {
-        if (export_mask) {
-            nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, OVS_BE16_MAX);
-        } else {
+        goto noethernet;
+    }
+
             nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, data->dl_type);
 	}
         goto noethernet;
@@ -4067,6 +4069,14 @@ commit_set_ether_addr_action(const struct flow *flow, struct flow *base_flow,
         return;
     }
 
+    /* If we have a L3 --> L2 flow, the push_eth action takes care of setting
+     * the appropriate MAC source and destination addresses, no need to add a
+     * set action
+     */
+    if (base_flow->base_layer == LAYER_3 && flow->base_layer == LAYER_2) {
+        return;
+    }
+
     get_ethernet_key(flow, &key);
     get_ethernet_key(base_flow, &base);
     get_ethernet_key(&wc->masks, &mask);
@@ -4317,6 +4327,45 @@ commit_set_arp_action(const struct flow *flow, struct flow *base_flow,
     return 0;
 }
 
+static void
+get_nd_key(const struct flow *flow, struct ovs_key_nd *nd)
+{
+    memcpy(nd->nd_target, &flow->nd_target, sizeof flow->nd_target);
+    /* nd_sll and nd_tll are stored in arp_sha and arp_tha, respectively */
+    memcpy(nd->nd_sll, flow->arp_sha, ETH_ADDR_LEN);
+    memcpy(nd->nd_tll, flow->arp_tha, ETH_ADDR_LEN);
+}
+
+static void
+put_nd_key(const struct ovs_key_nd *nd, struct flow *flow)
+{
+    memcpy(&flow->nd_target, &flow->nd_target, sizeof flow->nd_target);
+    /* nd_sll and nd_tll are stored in arp_sha and arp_tha, respectively */
+    memcpy(flow->arp_sha, nd->nd_sll, ETH_ADDR_LEN);
+    memcpy(flow->arp_tha, nd->nd_tll, ETH_ADDR_LEN);
+}
+
+static enum slow_path_reason
+commit_set_nd_action(const struct flow *flow, struct flow *base_flow,
+                     struct ofpbuf *odp_actions,
+                     struct flow_wildcards *wc, bool use_masked)
+{
+    struct ovs_key_nd key, mask, base;
+
+    get_nd_key(flow, &key);
+    get_nd_key(base_flow, &base);
+    get_nd_key(&wc->masks, &mask);
+
+    if (commit(OVS_KEY_ATTR_ND, use_masked, &key, &base, &mask, sizeof key,
+               odp_actions)) {
+        put_nd_key(&base, base_flow);
+        put_nd_key(&mask, &wc->masks);
+        return SLOW_ACTION;
+    }
+
+    return 0;
+}
+
 static enum slow_path_reason
 commit_set_nw_action(const struct flow *flow, struct flow *base,
                      struct ofpbuf *odp_actions, struct flow_wildcards *wc,
@@ -4334,7 +4383,7 @@ commit_set_nw_action(const struct flow *flow, struct flow *base,
 
     case ETH_TYPE_IPV6:
         commit_set_ipv6_action(flow, base, odp_actions, wc, use_masked);
-        break;
+        return commit_set_nd_action(flow, base, odp_actions, wc, use_masked);
 
     case ETH_TYPE_ARP:
         return commit_set_arp_action(flow, base, odp_actions, wc);

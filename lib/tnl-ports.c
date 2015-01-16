@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014 Nicira, Inc.
+ * Copyright (c) 2014, 2015 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -103,7 +103,7 @@ tnl_port_map_insert(odp_port_t port, ovs_be32 ip_dst, ovs_be16 udp_port,
         ovs_refcount_init(&p->ref_cnt);
         strncpy(p->dev_name, dev_name, IFNAMSIZ);
 
-        classifier_insert(&cls, &p->cr);
+        classifier_insert(&cls, &p->cr, NULL, 0);
     }
     ovs_mutex_unlock(&mutex);
 }
@@ -134,8 +134,10 @@ tnl_port_map_delete(ovs_be32 ip_dst, ovs_be16 udp_port)
     tnl_port_unref(cr);
 }
 
+/* 'flow' is non-const to allow for temporary modifications during the lookup.
+ * Any changes are restored before returning. */
 odp_port_t
-tnl_port_map_lookup(const struct flow *flow, struct flow_wildcards *wc)
+tnl_port_map_lookup(struct flow *flow, struct flow_wildcards *wc)
 {
     const struct cls_rule *cr = classifier_lookup(&cls, flow, wc);
 
@@ -188,6 +190,6 @@ tnl_port_show(struct unixctl_conn *conn, int argc OVS_UNUSED,
 void
 tnl_port_map_init(void)
 {
-    classifier_init(&cls, flow_segment_u32s);
+    classifier_init(&cls, flow_segment_u64s);
     unixctl_command_register("tnl/ports/show", "", 0, 0, tnl_port_show, NULL);
 }

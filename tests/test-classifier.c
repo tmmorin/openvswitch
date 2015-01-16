@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2010, 2011, 2012, 2013, 2014 Nicira, Inc.
+ * Copyright (c) 2009, 2010, 2011, 2012, 2013, 2014, 2015 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -700,7 +700,7 @@ test_empty(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
     struct classifier cls;
     struct tcls tcls;
 
-    classifier_init(&cls, flow_segment_u32s);
+    classifier_init(&cls, flow_segment_u64s);
     set_prefix_fields(&cls);
     tcls_init(&tcls);
     assert(classifier_is_empty(&cls));
@@ -731,12 +731,12 @@ test_single_rule(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
         rule = make_rule(wc_fields,
                          hash_bytes(&wc_fields, sizeof wc_fields, 0), 0);
 
-        classifier_init(&cls, flow_segment_u32s);
+        classifier_init(&cls, flow_segment_u64s);
         set_prefix_fields(&cls);
         tcls_init(&tcls);
 
         tcls_rule = tcls_insert(&tcls, rule);
-        classifier_insert(&cls, &rule->cls_rule);
+        classifier_insert(&cls, &rule->cls_rule, NULL, 0);
         compare_classifiers(&cls, &tcls);
         check_tables(&cls, 1, 1, 0);
 
@@ -769,11 +769,11 @@ test_rule_replacement(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
         rule2->aux += 5;
         rule2->aux += 5;
 
-        classifier_init(&cls, flow_segment_u32s);
+        classifier_init(&cls, flow_segment_u64s);
         set_prefix_fields(&cls);
         tcls_init(&tcls);
         tcls_insert(&tcls, rule1);
-        classifier_insert(&cls, &rule1->cls_rule);
+        classifier_insert(&cls, &rule1->cls_rule, NULL, 0);
         compare_classifiers(&cls, &tcls);
         check_tables(&cls, 1, 1, 0);
         tcls_destroy(&tcls);
@@ -782,7 +782,8 @@ test_rule_replacement(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
         tcls_insert(&tcls, rule2);
 
         assert(test_rule_from_cls_rule(
-                   classifier_replace(&cls, &rule2->cls_rule)) == rule1);
+                   classifier_replace(&cls, &rule2->cls_rule,
+                                      NULL, 0)) == rule1);
         ovsrcu_postpone(free_rule, rule1);
         compare_classifiers(&cls, &tcls);
         check_tables(&cls, 1, 1, 0);
@@ -884,7 +885,7 @@ test_many_rules_in_one_list (int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
                 pri_rules[i] = -1;
             }
 
-            classifier_init(&cls, flow_segment_u32s);
+            classifier_init(&cls, flow_segment_u64s);
             set_prefix_fields(&cls);
             tcls_init(&tcls);
 
@@ -897,7 +898,8 @@ test_many_rules_in_one_list (int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
 
                     tcls_rules[j] = tcls_insert(&tcls, rules[j]);
                     displaced_rule = test_rule_from_cls_rule(
-                        classifier_replace(&cls, &rules[j]->cls_rule));
+                        classifier_replace(&cls, &rules[j]->cls_rule,
+                                           NULL, 0));
                     if (pri_rules[pris[j]] >= 0) {
                         int k = pri_rules[pris[j]];
                         assert(displaced_rule != NULL);
@@ -986,7 +988,7 @@ test_many_rules_in_one_table(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
             value_mask = ~wcf & ((1u << CLS_N_FIELDS) - 1);
         } while ((1 << count_ones(value_mask)) < N_RULES);
 
-        classifier_init(&cls, flow_segment_u32s);
+        classifier_init(&cls, flow_segment_u64s);
         set_prefix_fields(&cls);
         tcls_init(&tcls);
 
@@ -1000,7 +1002,7 @@ test_many_rules_in_one_table(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
             rules[i] = make_rule(wcf, priority, value_pats[i]);
             tcls_rules[i] = tcls_insert(&tcls, rules[i]);
 
-            classifier_insert(&cls, &rules[i]->cls_rule);
+            classifier_insert(&cls, &rules[i]->cls_rule, NULL, 0);
             compare_classifiers(&cls, &tcls);
 
             check_tables(&cls, 1, i + 1, 0);
@@ -1048,7 +1050,7 @@ test_many_rules_in_n_tables(int n_tables)
         }
         shuffle(priorities, ARRAY_SIZE(priorities));
 
-        classifier_init(&cls, flow_segment_u32s);
+        classifier_init(&cls, flow_segment_u64s);
         set_prefix_fields(&cls);
         tcls_init(&tcls);
 
@@ -1059,7 +1061,7 @@ test_many_rules_in_n_tables(int n_tables)
             int value_pat = random_uint32() & ((1u << CLS_N_FIELDS) - 1);
             rule = make_rule(wcf, priority, value_pat);
             tcls_insert(&tcls, rule);
-            classifier_insert(&cls, &rule->cls_rule);
+            classifier_insert(&cls, &rule->cls_rule, NULL, 0);
             compare_classifiers(&cls, &tcls);
             check_tables(&cls, -1, i + 1, -1);
         }
@@ -1121,6 +1123,8 @@ choose(unsigned int n, unsigned int *idxp)
         return false;
     }
 }
+
+#define FLOW_U32S (FLOW_U64S * 2)
 
 static bool
 init_consecutive_values(int n_consecutive, struct flow *flow,
@@ -1259,7 +1263,7 @@ test_miniflow(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
 
     random_set_seed(0xb3faca38);
     for (idx = 0; next_random_flow(&flow, idx); idx++) {
-        const uint32_t *flow_u32 = (const uint32_t *) &flow;
+        const uint64_t *flow_u64 = (const uint64_t *) &flow;
         struct miniflow miniflow, miniflow2, miniflow3;
         struct flow flow2, flow3;
         struct flow_wildcards mask;
@@ -1271,9 +1275,8 @@ test_miniflow(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
 
         /* Check that the flow equals its miniflow. */
         assert(miniflow_get_vid(&miniflow) == vlan_tci_to_vid(flow.vlan_tci));
-        for (i = 0; i < FLOW_U32S; i++) {
-            assert(MINIFLOW_GET_TYPE(&miniflow, uint32_t, i * 4)
-                   == flow_u32[i]);
+        for (i = 0; i < FLOW_U64S; i++) {
+            assert(miniflow_get(&miniflow, i) == flow_u64[i]);
         }
 
         /* Check that the miniflow equals itself. */
@@ -1372,7 +1375,7 @@ test_minimask_combine(int argc OVS_UNUSED, char *argv[] OVS_UNUSED)
     for (idx = 0; next_random_flow(&flow, idx); idx++) {
         struct minimask minimask, minimask2, minicombined;
         struct flow_wildcards mask, mask2, combined, combined2;
-        uint32_t storage[FLOW_U32S];
+        uint64_t storage[FLOW_U64S];
         struct flow flow2;
 
         mask.masks = flow;
