@@ -487,8 +487,6 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 			return -ENOMEM;
 	}
 
-	}
-
 	skb_reset_network_header(skb);
 	skb_reset_mac_len(skb);
 	__skb_push(skb, skb->data - skb_mac_header(skb));
@@ -598,7 +596,7 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 		}
 	} else if (eth_p_mpls(key->eth.type)) {
 		size_t stack_len = MPLS_HLEN;
-		
+
 		/* In the presence of an MPLS label stack the end of the L2
 		 * header and the beginning of the L3 header differ.
 		 *

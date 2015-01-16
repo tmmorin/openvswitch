@@ -291,6 +291,7 @@ size_t ovs_key_attr_size(void)
 		+ nla_total_size(40)  /* OVS_KEY_ATTR_IPV6 */
 		+ nla_total_size(2)   /* OVS_KEY_ATTR_ICMPV6 */
 		+ nla_total_size(28); /* OVS_KEY_ATTR_ND */
+	/* IPV4, TCP, UDP, ICMP  ? */
 }
 
 /* The size of the argument for each %OVS_KEY_ATTR_* Netlink attribute.  */
@@ -701,7 +702,6 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 	if (*attrs & (1ULL << OVS_KEY_ATTR_PACKET_ETHERTYPE)) {
 		__be16 eth_type;
 
-
 		if (is_mask) {
 			/* Always exact match packet EtherType */
 			eth_type = htons(0xffff);
@@ -791,7 +791,7 @@ static int ovs_key_from_nlattrs(struct sw_flow_match *match, u64 attrs,
 
 		SW_FLOW_KEY_PUT(match, eth.type, eth_type, is_mask);
 		attrs &= ~(1ULL << OVS_KEY_ATTR_PACKET_ETHERTYPE);
-	} 
+	}
 
 	if (attrs & (1ULL << OVS_KEY_ATTR_IPV4)) {
 		const struct ovs_key_ipv4 *ipv4_key;
@@ -1340,7 +1340,7 @@ noethernet:
 		ether_addr_copy(arp_key->arp_tha, output->ipv4.arp.tha);
 	} else if (eth_p_mpls(swkey->eth.type)) {
 		struct ovs_key_mpls *mpls_key;
-	
+
 		nla = nla_reserve(skb, OVS_KEY_ATTR_MPLS, sizeof(*mpls_key));
 		if (!nla)
 			goto nla_put_failure;
@@ -1891,7 +1891,7 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 		    (action_lens[type] != nla_len(a) &&
 		     action_lens[type] != (u32)-1))
 			return -EINVAL;
-		
+
 		skip_copy = false;
 		switch (type) {
 		case OVS_ACTION_ATTR_UNSPEC:

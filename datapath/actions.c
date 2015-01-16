@@ -280,10 +280,20 @@ static int push_eth(struct sk_buff *skb, struct sw_flow_key *key,
 	/* De-accelerate any hardware accelerated VLAN tag added to a previous
 	 * Ethernet header */
 	if (unlikely(vlan_tx_tag_present(skb))) {
-		int err;
-		err = deaccel_vlan_tx_tag(skb);
-		if (unlikely(err))
-			return err;
+               u16 current_tag;
+
+               /* push down current VLAN tag */
+               current_tag = vlan_tx_tag_get(skb);
+
+               if (!__vlan_put_tag(skb, skb->vlan_proto, current_tag))
+                       return -ENOMEM;
+               /* Update mac_len for subsequent MPLS actions */
+               skb->mac_len += VLAN_HLEN;
+
+               if (skb->ip_summed == CHECKSUM_COMPLETE)
+                       skb->csum = csum_add(skb->csum, csum_partial(skb->data
+                                       + (2 * ETH_ALEN), VLAN_HLEN, 0));
+	
 	}
 
 	/* Add the new Ethernet header */
