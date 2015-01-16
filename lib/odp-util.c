@@ -2929,9 +2929,9 @@ odp_flow_key_from_flow__(struct ofpbuf *buf, const struct flow *flow,
     }
 
     if (flow->base_layer == LAYER_3) {
-        goto noethernet;
-    }
-
+        if (export_mask) {
+            nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, OVS_BE16_MAX);
+        } else {
             nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, data->dl_type);
 	}
         goto noethernet;

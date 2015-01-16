@@ -521,7 +521,7 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
 
 		    packet->l2_5_ofs = (char *)data - frame;
 		    count = parse_mpls(&data, &size);
-		    miniflow_push_words(mf, mpls_lse, mpls, count);
+           	    miniflow_push_words_32(mf, mpls_lse, mpls, count);
 		}
 
                 /* Network layer. */
