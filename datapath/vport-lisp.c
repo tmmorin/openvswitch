@@ -265,6 +265,7 @@ static int lisp_rcv(struct sock *sk, struct sk_buff *skb)
 	default:
 		goto error;
 	}
+
 	ovs_vport_receive(vport_from_priv(lisp_port), skb, &tun_info, true);
 	goto out;
 
@@ -438,13 +439,6 @@ static int lisp_send(struct vport *vport, struct sk_buff *skb)
 
 	/* Reject layer 2 packets */
 	if (unlikely((skb->mac_len > 0) || vlan_tx_tag_present(skb))) {
-		return -EINVAL;
-
-	/* LISP only encapsulates IPv4 and IPv6 packets */
-	if (unlikely(skb->protocol != htons(ETH_P_IP) &&
-	    skb->protocol != htons(ETH_P_IPV6)))
-		return -EINVAL;
-
 		err = -EINVAL;
 		goto error;
 	}
@@ -458,6 +452,9 @@ static int lisp_send(struct vport *vport, struct sk_buff *skb)
 
 	if (unlikely(!OVS_CB(skb)->egress_tun_info)) {
 		err = -EINVAL;
+		goto error;
+	}
+
 	tun_key = &OVS_CB(skb)->egress_tun_info->tunnel;
 
 	/* Route lookup */
