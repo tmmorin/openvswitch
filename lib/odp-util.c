@@ -4069,14 +4069,6 @@ commit_set_ether_addr_action(const struct flow *flow, struct flow *base_flow,
         return;
     }
 
-    /* If we have a L3 --> L2 flow, the push_eth action takes care of setting
-     * the appropriate MAC source and destination addresses, no need to add a
-     * set action
-     */
-    if (base_flow->base_layer == LAYER_3 && flow->base_layer == LAYER_2) {
-        return;
-    }
-
     get_ethernet_key(flow, &key);
     get_ethernet_key(base_flow, &base);
     get_ethernet_key(&wc->masks, &mask);
