@@ -3196,22 +3196,9 @@ odp_key_to_pkt_metadata(const struct nlattr *key, size_t key_len,
             md->base_layer = LAYER_2;
             wanted_attrs &= ~(1u << OVS_KEY_ATTR_ETHERNET);
             break;
-        case OVS_KEY_ATTR_IPV4:
-            md->packet_ethertype = htons(ETH_TYPE_IP);
-            wanted_attrs &= ~(1u << OVS_KEY_ATTR_IPV4);
-            break;
-        case OVS_KEY_ATTR_IPV6:
-            md->packet_ethertype = htons(ETH_TYPE_IPV6);
-            wanted_attrs &= ~(1u << OVS_KEY_ATTR_IPV6);
-            break;
         case OVS_KEY_ATTR_PACKET_ETHERTYPE:
-	    /* makes the above for IPv4 and IPv6 useless */
             md->packet_ethertype = nl_attr_get_u16(nla);
             wanted_attrs &= ~(1u << OVS_KEY_ATTR_PACKET_ETHERTYPE);
-	/* FIXME 
-		TM: what is done above for IPv4 and IPv5 and packet_ethertype is not doable
- 		    for MPLS (which can be mapped to *two* ethertypes)
-		*/
         default:
             break;
         }
@@ -3400,8 +3387,6 @@ parse_ethertype(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
                 flow->dl_type = htons(ETH_TYPE_IP);
             } else if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_IPV6)) {
                 flow->dl_type = htons(ETH_TYPE_IPV6);
-            } else if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_MPLS)) {
-                flow->dl_type = htons(ETH_TYPE_MPLS);  /* FIXME: having OVS_KEY_ATTR_MPLS is not enough to guess eth_type (can be 8847 or 8848) */
             } else {
                 flow->dl_type = htons(FLOW_DL_TYPE_NONE);
             }
