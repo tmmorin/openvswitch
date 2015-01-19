@@ -388,22 +388,6 @@ invalid:
     return false;
 }
 
-/* Determines IP version if a layer 3 packet */
-static ovs_be16
-get_l3_eth_type(struct ofpbuf *packet)
-{
-    struct ip_header *ip = ofpbuf_l3(packet);
-    int ip_ver = IP_VER(ip->ip_ihl_ver);
-    switch (ip_ver) {
-    case 4:
-        return htons(ETH_TYPE_IP);
-    case 6:
-        return htons(ETH_TYPE_IPV6);
-    default:
-        return 0;
-    }
-}
-
 /* Initializes 'flow' members from 'packet' and 'md'.  Expects packet->frame
  * pointer to be equal to ofpbuf_data(packet), and packet->l3_ofs to be set to
  * 0 for layer 3 packets.
@@ -528,13 +512,7 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
 		/** FIXME ------- not true for all packets, needs to be correctly handled with a pop_mpls -> set ethertype */
                 packet->l3_ofs = (char *)data - frame;
 	} else {
-		/* AFAICT, this is obsolete and should not be hit anymore now that 
-		   packet ethertype is known */
-		VLOG_WARN("miniflow_extract: get_l3_eth_type called to find dl_type");
-		/* We assume L3 packets are either IPv4 or IPv6 */
-		dl_type = get_l3_eth_type(packet);  
-		miniflow_push_be16(mf, dl_type, dl_type);
-		miniflow_push_be16(mf, vlan_tci, 0);
+		VLOG_WARN("miniflow_extract: flow is layer3 but md->base_layer is not 3");
 	}
     }
 
