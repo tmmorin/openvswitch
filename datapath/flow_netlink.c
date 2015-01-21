@@ -708,7 +708,9 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 		} else {
 			eth_type = nla_get_be16(a[OVS_KEY_ATTR_PACKET_ETHERTYPE]);
 			is_layer3 = ((eth_type == htons(ETH_P_IP)) ||
-				    (eth_type == htons(ETH_P_IPV6)));
+				    (eth_type == htons(ETH_P_IPV6))||
+				     eth_p_mpls(eth_type) );
+
 		}
 		SW_FLOW_KEY_PUT(match, eth.type, eth_type, is_mask);
 	}
@@ -795,7 +797,7 @@ static int ovs_key_from_nlattrs(struct sw_flow_match *match, u64 attrs,
 		const struct ovs_key_ipv4 *ipv4_key;
 
 		/* Add eth.type value for layer 3 flows */
-		if (!(attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE))) {
+		/*if (!(attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE))) {
 			__be16 eth_type;
 
 			if (is_mask)
@@ -803,7 +805,7 @@ static int ovs_key_from_nlattrs(struct sw_flow_match *match, u64 attrs,
 			else
 				eth_type = htons(ETH_P_IP);
 			SW_FLOW_KEY_PUT(match, eth.type, eth_type, is_mask);
-		}
+		}*/
 
 		ipv4_key = nla_data(a[OVS_KEY_ATTR_IPV4]);
 		if (!is_mask && ipv4_key->ipv4_frag > OVS_FRAG_TYPE_MAX) {
@@ -830,7 +832,7 @@ static int ovs_key_from_nlattrs(struct sw_flow_match *match, u64 attrs,
 		const struct ovs_key_ipv6 *ipv6_key;
 
 		/* Add eth.type value for layer 3 flows */
-		if (!(attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE))) {
+/*		if (!(attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE))) {
 			__be16 eth_type;
 
 			if (is_mask)
@@ -838,7 +840,7 @@ static int ovs_key_from_nlattrs(struct sw_flow_match *match, u64 attrs,
 			else
 				eth_type = htons(ETH_P_IPV6);
 			SW_FLOW_KEY_PUT(match, eth.type, eth_type, is_mask);
-		}
+		}*/
 
 		ipv6_key = nla_data(a[OVS_KEY_ATTR_IPV6]);
 		if (!is_mask && ipv6_key->ipv6_frag > OVS_FRAG_TYPE_MAX) {
@@ -1248,8 +1250,11 @@ int ovs_nla_put_flow(const struct sw_flow_key *swkey,
 	if (nla_put_u32(skb, OVS_KEY_ATTR_SKB_MARK, output->phy.skb_mark))
 		goto nla_put_failure;
 
-	if (swkey->phy.is_layer3)
+	if (swkey->phy.is_layer3) {
+		if (nla_put_be16(skb, OVS_KEY_ATTR_PACKET_ETHERTYPE, output->eth.type))
+			goto nla_put_failure;
 		goto noethernet;
+	}
 
 	nla = nla_reserve(skb, OVS_KEY_ATTR_ETHERNET, sizeof(*eth_key));
 	if (!nla)

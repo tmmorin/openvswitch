@@ -118,7 +118,10 @@ static int gre_rcv(struct sk_buff *skb,
 	ovs_flow_tun_info_init(&tun_info, ip_hdr(skb), 0, 0, key,
 			       filter_tnl_flags(tpi->flags), NULL, 0);
 
-	ovs_vport_receive(vport, skb, &tun_info, false);
+	skb->protocol = tpi->proto;
+	ovs_vport_receive(vport, skb, &tun_info, 
+		(tpi->proto != htons(ETH_P_TEB)));
+
 	return PACKET_RCVD;
 }
 
