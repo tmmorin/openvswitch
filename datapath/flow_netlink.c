@@ -1735,11 +1735,8 @@ static int validate_set(const struct nlattr *a,
 		break;
 
 	case OVS_KEY_ATTR_TUNNEL:
-		/* why...? */
-		if (eth_p_mpls(eth_type)) {
-			printk(KERN_WARNING "validate_set: refusing ATTR_TUNNEL with eth_type MPLS\n");
+		if (eth_p_mpls(eth_type))
 			return -EINVAL;
-		}
 
 		*set_tun = true;
 		err = validate_and_copy_set_tun(a, sfa, log);
