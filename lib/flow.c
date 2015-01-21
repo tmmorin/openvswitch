@@ -385,6 +385,22 @@ invalid:
     return false;
 }
 
+/* Determines IP version if a layer 3 packet */
+static ovs_be16
+get_l3_eth_type(struct ofpbuf *packet)
+{
+    struct ip_header *ip = ofpbuf_l3(packet);
+    int ip_ver = IP_VER(ip->ip_ihl_ver);
+    switch (ip_ver) {
+    case 4:
+        return htons(ETH_TYPE_IP);
+    case 6:
+        return htons(ETH_TYPE_IPV6);
+    default:
+        return 0;
+    }
+}
+
 /* Initializes 'flow' members from 'packet' and 'md'.  Expects packet->frame
  * pointer to be equal to ofpbuf_data(packet), and packet->l3_ofs to be set to
  * 0 for layer 3 packets.
@@ -431,6 +447,7 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
     size_t size = ofpbuf_size(packet);
     uint64_t *values = miniflow_values(dst);
     struct mf_ctx mf = { 0, values, values + FLOW_U64S };
+    uint32_t base_layer = (packet->l3_ofs) ? LAYER_2 : LAYER_3;
     char *frame = NULL;
     ovs_be16 dl_type;
     uint8_t nw_frag, nw_tos, nw_ttl, nw_proto;
@@ -447,15 +464,14 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
         }
         miniflow_push_uint32(mf, dp_hash, md->dp_hash);
         miniflow_push_uint32(mf, in_port, odp_to_u32(md->in_port.odp_port));
-        if (md->recirc_id) {
+        if (md->recirc_id || base_layer) {
             miniflow_push_uint32(mf, recirc_id, md->recirc_id);
-            miniflow_pad_to_64(mf, conj_id);
+	    miniflow_push_uint32(mf, base_layer, base_layer);
         }
     }
 
-    if (packet->l3_ofs) {
+    if (base_layer == LAYER_2) {
         frame = data;
-        miniflow_push_uint32(mf, base_layer, LAYER_2);
 
         /* Must have full Ethernet header to proceed. */
         if (OVS_UNLIKELY(size < sizeof(struct eth_header))) {
@@ -486,30 +502,13 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
 
         /* Network layer. */
         packet->l3_ofs = (char *)data - frame;
+    } else if (base_layer == LAYER_3) {
+        /* We assume L3 packets are either IPv4 or IPv6 */
+        dl_type = get_l3_eth_type(packet);
+        miniflow_push_be16(mf, dl_type, dl_type);
+        miniflow_push_be16(mf, vlan_tci, 0);
     } else {
-        miniflow_push_uint32(mf, base_layer, LAYER_3);
-
-    	if (md && md->base_layer == LAYER_3)  {
-		dl_type = md->packet_ethertype;
-
-		miniflow_push_be16(mf, dl_type, dl_type);
-		miniflow_push_be16(mf, vlan_tci, 0);
-
-		/* Parse mpls.  ---- FIXME: to factor-out with the above ----*/
-		if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
-		    int count;
-		    const void *mpls = data;
-
-		    packet->l2_5_ofs = (char *)data - frame;
-		    count = parse_mpls(&data, &size);
-           	    miniflow_push_words_32(mf, mpls_lse, mpls, count);
-		}
-
-                /* Network layer. */
-		/** FIXME ------- not true for all packets, needs to be correctly handled with a pop_mpls -> set ethertype */
-                packet->l3_ofs = (char *)data - frame;
-	} else
-		goto out;
+	OVS_NOT_REACHED();
     }
 
     nw_frag = 0;

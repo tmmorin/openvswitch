@@ -2929,11 +2929,6 @@ odp_flow_key_from_flow__(struct ofpbuf *buf, const struct flow *flow,
     }
 
     if (flow->base_layer == LAYER_3) {
-        if (export_mask) {
-            nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, OVS_BE16_MAX);
-        } else {
-            nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, data->dl_type);
-	}
         goto noethernet;
     }
 
@@ -3196,9 +3191,14 @@ odp_key_to_pkt_metadata(const struct nlattr *key, size_t key_len,
             md->base_layer = LAYER_2;
             wanted_attrs &= ~(1u << OVS_KEY_ATTR_ETHERNET);
             break;
-        case OVS_KEY_ATTR_PACKET_ETHERTYPE:
-            md->packet_ethertype = nl_attr_get_u16(nla);
-            wanted_attrs &= ~(1u << OVS_KEY_ATTR_PACKET_ETHERTYPE);
+        case OVS_KEY_ATTR_IPV4:
+            md->packet_ethertype = htons(ETH_TYPE_IP);
+            wanted_attrs &= ~(1u << OVS_KEY_ATTR_IPV4);
+            break;
+        case OVS_KEY_ATTR_IPV6:
+            md->packet_ethertype = htons(ETH_TYPE_IPV6);
+            wanted_attrs &= ~(1u << OVS_KEY_ATTR_IPV6);
+            break;
         default:
             break;
         }

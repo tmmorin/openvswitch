@@ -708,9 +708,7 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 		} else {
 			eth_type = nla_get_be16(a[OVS_KEY_ATTR_PACKET_ETHERTYPE]);
 			is_layer3 = ((eth_type == htons(ETH_P_IP)) ||
-				     (eth_type == htons(ETH_P_IPV6)) ||
-			             eth_p_mpls(eth_type) );
-			/* FIXME: is the above needed ? */
+				    (eth_type == htons(ETH_P_IPV6)));
 		}
 		SW_FLOW_KEY_PUT(match, eth.type, eth_type, is_mask);
 	}
@@ -797,7 +795,6 @@ static int ovs_key_from_nlattrs(struct sw_flow_match *match, u64 attrs,
 		const struct ovs_key_ipv4 *ipv4_key;
 
 		/* Add eth.type value for layer 3 flows */
-		/* FIXME: not needed anymore thanks to generic tunnel ethtype things ?? */
 		if (!(attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE))) {
 			__be16 eth_type;
 
@@ -836,7 +833,6 @@ static int ovs_key_from_nlattrs(struct sw_flow_match *match, u64 attrs,
 		if (!(attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE))) {
 			__be16 eth_type;
 
-		/* FIXME: not needed anymore thanks to generic tunnel ethtype things ??? */
 			if (is_mask)
 				eth_type = htons(0xffff);
 			else
@@ -1252,11 +1248,8 @@ int ovs_nla_put_flow(const struct sw_flow_key *swkey,
 	if (nla_put_u32(skb, OVS_KEY_ATTR_SKB_MARK, output->phy.skb_mark))
 		goto nla_put_failure;
 
-	if (swkey->phy.is_layer3) {
-		if (nla_put_be16(skb, OVS_KEY_ATTR_PACKET_ETHERTYPE, output->eth.type))
-			goto nla_put_failure;
+	if (swkey->phy.is_layer3)
 		goto noethernet;
-	}
 
 	nla = nla_reserve(skb, OVS_KEY_ATTR_ETHERNET, sizeof(*eth_key));
 	if (!nla)
@@ -1797,11 +1790,8 @@ static int validate_set(const struct nlattr *a,
 		return validate_tp_port(flow_key, eth_type);
 
 	case OVS_KEY_ATTR_MPLS:
-		/* why...? */
-		if (is_layer3) {
-			printk(KERN_WARNING "validate_set would break on KEY_ATTR_MPLS and is_layer3, bypassing\n");
-			/*return -EINVAL;*/
-		}
+		if (is_layer3)
+			return -EINVAL;
 		if (!eth_p_mpls(eth_type))
 			return -EINVAL;
 		break;
