@@ -4031,7 +4031,7 @@ do_xlate_actions(const struct ofpact *ofpacts, size_t ofpacts_len,
         case OFPACT_SET_MPLS_LABEL:
             compose_set_mpls_label_action(
                 ctx, ofpact_get_SET_MPLS_LABEL(a)->label);
-            break;
+        break;
 
         case OFPACT_SET_MPLS_TC:
             compose_set_mpls_tc_action(ctx, ofpact_get_SET_MPLS_TC(a)->tc);
@@ -4395,6 +4395,7 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
     }
 
     ctx.rule = xin->rule;
+
     ctx.base_flow = *flow;
     memset(&ctx.base_flow.tunnel, 0, sizeof ctx.base_flow.tunnel);
     ctx.orig_tunnel_ip_dst = flow->tunnel.ip_dst;

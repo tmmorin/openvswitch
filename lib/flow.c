@@ -38,9 +38,6 @@
 #include "odp-util.h"
 #include "random.h"
 #include "unaligned.h"
-#include "openvswitch/vlog.h"
-
-VLOG_DEFINE_THIS_MODULE(flow);
 
 COVERAGE_DEFINE(flow_extract);
 COVERAGE_DEFINE(miniflow_malloc);
@@ -511,9 +508,8 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
                 /* Network layer. */
 		/** FIXME ------- not true for all packets, needs to be correctly handled with a pop_mpls -> set ethertype */
                 packet->l3_ofs = (char *)data - frame;
-	} else {
-		VLOG_WARN("miniflow_extract: flow is layer3 but md->base_layer is not 3");
-	}
+	} else
+		goto out;
     }
 
     nw_frag = 0;

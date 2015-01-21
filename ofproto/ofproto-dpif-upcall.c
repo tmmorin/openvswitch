@@ -630,7 +630,7 @@ recv_upcalls(struct handler *handler)
     struct upcall upcalls[UPCALL_MAX_BATCH];
     struct flow flows[UPCALL_MAX_BATCH];
     size_t n_upcalls, i;
-    
+
     n_upcalls = 0;
     while (n_upcalls < UPCALL_MAX_BATCH) {
         struct ofpbuf *recv_buf = &recv_bufs[n_upcalls];
@@ -651,7 +651,7 @@ recv_upcalls(struct handler *handler)
             == ODP_FIT_ERROR) {
             goto free_dupcall;
         }
- 
+
         error = upcall_receive(upcall, udpif->backer, &dupcall->packet,
                                dupcall->type, dupcall->userdata, flow,
                                &dupcall->ufid, PMD_ID_NULL);
@@ -682,7 +682,7 @@ recv_upcalls(struct handler *handler)
 
         md = pkt_metadata_from_flow(flow);
         flow_extract(&dupcall->packet, &md, flow);
-  
+
         error = process_upcall(udpif, upcall, NULL);
         if (error) {
             goto cleanup;
@@ -1178,7 +1178,7 @@ handle_upcalls(struct udpif *udpif, struct upcall *upcalls,
          *      already. */
         if (may_put && upcall->type == DPIF_UC_MISS) {
             struct udpif_key *ukey = upcall->ukey;
-            
+
             upcall->ukey_persists = true;
             op = &ops[n_ops++];
 
