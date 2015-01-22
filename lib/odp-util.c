@@ -2998,6 +2998,7 @@ noethernet:
         struct ovs_key_mpls *mpls_key;
         int i, n;
 
+	VLOG_WARN("odp_flow_key_from_flow__: mpls...");
         n = flow_count_mpls_labels(flow, NULL);
         n = MIN(n, max_mpls_depth);
         mpls_key = nl_msg_put_unspec_uninit(buf, OVS_KEY_ATTR_MPLS,
@@ -3128,11 +3129,14 @@ odp_key_from_pkt_metadata(struct ofpbuf *buf, const struct pkt_metadata *md)
         nl_msg_put_odp_port(buf, OVS_KEY_ATTR_IN_PORT, md->in_port.odp_port);
     }
 
+    VLOG_WARN("odp_key_from_pkt_metadata: md->base_layer = %d",md->base_layer);
+    VLOG_WARN("odp_key_from_pkt_metadata: LAYER_3 = %d",LAYER_3);
     if (md->base_layer == LAYER_3) {
+    	VLOG_WARN("odp_key_from_pkt_metadata: put md->packet_ethertype in OVS_KEY_ATTR_PACKET_ETHERTYPE (%llx)", md->packet_ethertype);
         nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, md->packet_ethertype);
     } else {
         nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, htons(0));
-    }    
+    }
 }
 
 /* Generate packet metadata from the given ODP flow key. */
@@ -3356,8 +3360,11 @@ parse_ethertype(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
     static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(1, 5);
     bool is_mask = flow != src_flow;
 
+    VLOG_WARN("parse_ethertype");
+
     if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_ETHERTYPE)) {
         flow->dl_type = nl_attr_get_be16(attrs[OVS_KEY_ATTR_ETHERTYPE]);
+        VLOG_WARN("parse_ethertype: ATTR_ETHERTYPE present: %04x",flow->dl_type);
         if (!is_mask && ntohs(flow->dl_type) < ETH_TYPE_MIN) {
             VLOG_ERR_RL(&rl, "invalid Ethertype %"PRIu16" in flow key",
                         ntohs(flow->dl_type));
@@ -3412,7 +3419,13 @@ parse_l2_5_onward(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
     size_t check_len = 0;
     enum ovs_key_attr expected_bit = 0xff;
 
+
+    // FIXME here the hypothesis is made that ethype is in flow->dl_type
+    //   and look there for MPLS...
+
+    VLOG_WARN("parse_l2_5_onward: dl_type is %x",src_flow->dl_type);
     if (eth_type_mpls(src_flow->dl_type)) {
+	VLOG_WARN("parse_l2_5_onward: dl_type is MPLS !!");
         if (!is_mask || present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_MPLS)) {
             expected_attrs |= (UINT64_C(1) << OVS_KEY_ATTR_MPLS);
         }
@@ -3425,17 +3438,21 @@ parse_l2_5_onward(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
             if (!size || size % sizeof(ovs_be32)) {
                 return ODP_FIT_ERROR;
             }
+	    VLOG_WARN("parse_l2_5_onward: dl_type is MPLS: A");
             if (flow->mpls_lse[0] && flow->dl_type != htons(0xffff)) {
                 return ODP_FIT_ERROR;
             }
 
+	    VLOG_WARN("parse_l2_5_onward: dl_type is MPLS: B");
             for (i = 0; i < n && i < FLOW_MAX_MPLS_LABELS; i++) {
                 flow->mpls_lse[i] = mpls_lse[i];
             }
+	    VLOG_WARN("parse_l2_5_onward: dl_type is MPLS: C");
             if (n > FLOW_MAX_MPLS_LABELS) {
                 return ODP_FIT_TOO_MUCH;
             }
 
+	    VLOG_WARN("parse_l2_5_onward: dl_type is MPLS: D");
             if (!is_mask) {
                 /* BOS may be set only in the innermost label. */
                 for (i = 0; i < n - 1; i++) {
@@ -3450,8 +3467,10 @@ parse_l2_5_onward(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
                     return ODP_FIT_TOO_LITTLE;
                 }
             }
+	    VLOG_WARN("parse_l2_5_onward: dl_type is MPLS: E");
         }
 
+        VLOG_WARN("parse_l2_5_onward: dl_type is MPLS: F");
         goto done;
     } else if (src_flow->dl_type == htons(ETH_TYPE_IP)) {
         if (!is_mask) {
@@ -3511,6 +3530,7 @@ parse_l2_5_onward(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
             }
         }
     } else {
+        VLOG_WARN("parse_l2_5_onward: dl_type is %x, 'goto done'",src_flow->dl_type);
         goto done;
     }
     if (check_len > 0) { /* Happens only when 'is_mask'. */
@@ -3777,11 +3797,14 @@ odp_flow_key_to_flow__(const struct nlattr *key, size_t key_len,
     if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_ETHERNET)) {
         const struct ovs_key_ethernet *eth_key;
 
+	VLOG_WARN("odp_flow_key_to_flow__: OVS_KEY_ATTR_ETHERNET present");
+
         eth_key = nl_attr_get(attrs[OVS_KEY_ATTR_ETHERNET]);
         put_ethernet_key(eth_key, flow);
         flow->base_layer = LAYER_2;
         expected_attrs |= UINT64_C(1) << OVS_KEY_ATTR_ETHERNET;
     } else {
+	VLOG_WARN("odp_flow_key_to_flow__: OVS_KEY_ATTR_ETHERNET not present");
         flow->base_layer = LAYER_3;
     }
 

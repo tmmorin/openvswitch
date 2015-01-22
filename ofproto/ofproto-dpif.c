@@ -2699,7 +2699,7 @@ bundle_destroy(struct ofbundle *bundle)
     }
 
     ofproto = bundle->ofproto;
-    mbridge_unregister_bundle(ofproto->mbridge, bundle->aux);
+    mbridge_unregister_bundle(ofproto->mbridge, bundle);
 
     xlate_txn_start();
     xlate_bundle_remove(bundle);

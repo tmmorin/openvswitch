@@ -38,6 +38,9 @@
 #include "odp-util.h"
 #include "random.h"
 #include "unaligned.h"
+#include "openvswitch/vlog.h"
+
+VLOG_DEFINE_THIS_MODULE(flow);
 
 COVERAGE_DEFINE(flow_extract);
 COVERAGE_DEFINE(miniflow_malloc);
@@ -266,9 +269,12 @@ parse_mpls(void **datap, size_t *sizep)
     const struct mpls_hdr *mh;
     int count = 0;
 
+    VLOG_WARN("parse_mpls");
     while ((mh = data_try_pull(datap, sizep, sizeof *mh))) {
         count++;
+    	VLOG_WARN("parse_mpls loop %d",count);
         if (mh->mpls_lse.lo & htons(1 << MPLS_BOS_SHIFT)) {
+    	    VLOG_WARN("parse_mpls bos hit");
             break;
         }
     }
@@ -450,12 +456,14 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
         miniflow_push_uint32(mf, in_port, odp_to_u32(md->in_port.odp_port));
         if (md->recirc_id || base_layer) {
             miniflow_push_uint32(mf, recirc_id, md->recirc_id);
-	    miniflow_push_uint32(mf, base_layer, base_layer);
+            miniflow_push_uint32(mf, base_layer, base_layer);
         }
     }
 
     if (base_layer == LAYER_2) {
         frame = data;
+
+	VLOG_WARN("miniflow_extract: l2");
 
         /* Must have full Ethernet header to proceed. */
         if (OVS_UNLIKELY(size < sizeof(struct eth_header))) {
@@ -487,11 +495,11 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
         /* Network layer. */
         packet->l3_ofs = (char *)data - frame;
     } else if (base_layer == LAYER_3) {
-
         if (md)  {
             dl_type = md->packet_ethertype;
     
             miniflow_push_be16(mf, dl_type, dl_type);
+    VLOG_WARN("miniflow_extract: dl_type set to %0x",dl_type);
             miniflow_push_be16(mf, vlan_tci, 0);
     
             /* Parse mpls. */
@@ -512,7 +520,8 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
             OVS_NOT_REACHED();
     } else
         OVS_NOT_REACHED();
-
+    
+    VLOG_WARN("miniflow_extract: dl_type set to %0x",dl_type);
 
     nw_frag = 0;
     if (OVS_LIKELY(dl_type == htons(ETH_TYPE_IP))) {

@@ -1751,6 +1751,7 @@ static int validate_set(const struct nlattr *a,
 	     ovs_key_lens[key_type] != -1))
 		return -EINVAL;
 
+	printk(KERN_WARNING "validate_set: key_type:%d\n",key_type);
 	switch (key_type) {
 	const struct ovs_key_ipv4 *ipv4_key;
 	const struct ovs_key_ipv6 *ipv6_key;
@@ -1843,6 +1844,7 @@ static int validate_set(const struct nlattr *a,
 		return -EINVAL;
 	}
 
+	printk(KERN_WARNING "validate_set: key_type:%d, return 0\n",key_type);
 	return 0;
 }
 
