@@ -78,7 +78,7 @@ static struct sk_buff *__build_header(struct sk_buff *skb,
 
 	if (skb->mac_len)
 		tpi.proto = htons(ETH_P_TEB);
-        else 
+	else
 		tpi.proto = skb->protocol;
 
 	tpi.key = be64_get_low32(tun_key->tun_id);
