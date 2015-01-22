@@ -1205,6 +1205,7 @@ dpif_operate(struct dpif *dpif, struct dpif_op **ops, size_t n_ops)
     while (n_ops > 0) {
         size_t chunk;
 
+	VLOG_WARN("dpif_operate...");
         /* Count 'chunk', the number of ops that can be executed without
          * needing any help.  Ops that need help should be rare, so we
          * expect this to ordinarily be 'n_ops', that is, all the ops. */
@@ -1222,7 +1223,9 @@ dpif_operate(struct dpif *dpif, struct dpif_op **ops, size_t n_ops)
              * handle itself, without help. */
             size_t i;
 
+	VLOG_WARN("dpif_operate: before dpif->dpif_class->operate");
             dpif->dpif_class->operate(dpif, ops, chunk);
+	VLOG_WARN("dpif_operate: after dpif->dpif_class->operate");
 
             for (i = 0; i < chunk; i++) {
                 struct dpif_op *op = ops[i];
