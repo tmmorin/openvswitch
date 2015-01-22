@@ -434,7 +434,7 @@ invalid:
  * Ethernet header
  * @key: output flow key
  *
- * The caller must ensure that skb->len >= ETH_HLEN.   // FIXME: is it still true for all layer3 packets...??
+ * The caller must ensure that skb->len >= ETH_HLEN.
  *
  * Returns 0 if successful, otherwise a negative errno value.
  *
@@ -609,7 +609,7 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 
 			error = check_header(skb, skb->mac_len + stack_len);
 			if (unlikely(error))
-				return 0; /* FIXME: return error ? */
+				return 0;
 
 			memcpy(&lse, skb_network_header(skb), MPLS_HLEN);
 

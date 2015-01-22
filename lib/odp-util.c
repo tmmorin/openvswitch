@@ -3127,12 +3127,6 @@ odp_key_from_pkt_metadata(struct ofpbuf *buf, const struct pkt_metadata *md)
     if (md->in_port.odp_port != ODPP_NONE) {
         nl_msg_put_odp_port(buf, OVS_KEY_ATTR_IN_PORT, md->in_port.odp_port);
     }
-
-    if (md->base_layer == LAYER_3) {
-        nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, md->packet_ethertype);
-    } else {
-        nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, htons(0));
-    }
 }
 
 /* Generate packet metadata from the given ODP flow key. */

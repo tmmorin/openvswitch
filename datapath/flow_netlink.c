@@ -291,7 +291,6 @@ size_t ovs_key_attr_size(void)
 		+ nla_total_size(40)  /* OVS_KEY_ATTR_IPV6 */
 		+ nla_total_size(2)   /* OVS_KEY_ATTR_ICMPV6 */
 		+ nla_total_size(28); /* OVS_KEY_ATTR_ND */
-	/* IPV4, TCP, UDP, ICMP  ? */
 }
 
 /* The size of the argument for each %OVS_KEY_ATTR_* Netlink attribute.  */
@@ -317,7 +316,6 @@ static const int ovs_key_lens[OVS_KEY_ATTR_MAX + 1] = {
 	[OVS_KEY_ATTR_DP_HASH] = sizeof(u32),
 	[OVS_KEY_ATTR_TUNNEL] = -1,
 	[OVS_KEY_ATTR_MPLS] = sizeof(struct ovs_key_mpls),
-	[OVS_KEY_ATTR_PACKET_ETHERTYPE] = sizeof(__be16),
 };
 
 static bool is_all_zero(const u8 *fp, size_t size)
@@ -636,8 +634,6 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 				 const struct nlattr **a, bool is_mask,
 				 bool log)
 {
-	bool is_layer3;
-
 	if (*attrs & (1ULL << OVS_KEY_ATTR_DP_HASH)) {
 		u32 hash_val = nla_get_u32(a[OVS_KEY_ATTR_DP_HASH]);
 

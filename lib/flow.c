@@ -1651,7 +1651,7 @@ flow_push_mpls(struct flow *flow, int n, ovs_be16 mpls_eth_type,
         flow->mpls_lse[0] = set_mpls_lse_values(ttl, tc, 1, htonl(label));
 
         /* Clear all L3 and L4 fields and dp_hash. */
-        BUILD_ASSERT(FLOW_WC_SEQ == 31);
+        BUILD_ASSERT(FLOW_WC_SEQ == 30);
         memset((char *) flow + FLOW_SEGMENT_2_ENDS_AT, 0,
                sizeof(struct flow) - FLOW_SEGMENT_2_ENDS_AT);
         flow->dp_hash = 0;
