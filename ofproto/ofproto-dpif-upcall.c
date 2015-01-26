@@ -640,6 +640,7 @@ recv_upcalls(struct handler *handler)
     struct upcall upcalls[UPCALL_MAX_BATCH];
     struct flow flows[UPCALL_MAX_BATCH];
     size_t n_upcalls, i;
+    char *flow_str; 
 
     n_upcalls = 0;
     while (n_upcalls < UPCALL_MAX_BATCH) {
@@ -693,6 +694,10 @@ recv_upcalls(struct handler *handler)
         md = pkt_metadata_from_flow(flow);
         flow_extract(&dupcall->packet, &md, flow);
 
+        flow_str = flow_to_string(upcall->flow);
+	VLOG_WARN("recv_upcalls, before process_upcall: flow: %s", flow_str);
+        free(flow_str);
+ 
         error = process_upcall(udpif, upcall, NULL);
         if (error) {
             goto cleanup;
@@ -935,8 +940,12 @@ upcall_xlate(struct udpif *udpif, struct upcall *upcall,
 {
     struct dpif_flow_stats stats;
     struct xlate_in xin;
+    char *flow_str; 
 
     VLOG_WARN("upcall_xlate");
+    flow_str = flow_to_string(upcall->flow);
+    VLOG_WARN("upcall_xlate: flow: %s", flow_str);
+    free(flow_str);
    
     stats.n_packets = 1;
     stats.n_bytes = ofpbuf_size(upcall->packet);

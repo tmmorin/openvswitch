@@ -122,7 +122,8 @@ struct mf_ctx {
  * away.  Some GCC versions gave warnings on ALWAYS_INLINE, so these are
  * defined as macros. */
 
-#if (FLOW_WC_SEQ != 31)
+/*#if (FLOW_WC_SEQ != 31)   <=== right value !*/
+#if (FLOW_WC_SEQ != 30)
 #define MINIFLOW_ASSERT(X) ovs_assert(X)
 BUILD_MESSAGE("FLOW_WC_SEQ changed: miniflow_extract() will have runtime "
                "assertions enabled. Consider updating FLOW_WC_SEQ after "
@@ -133,10 +134,14 @@ BUILD_MESSAGE("FLOW_WC_SEQ changed: miniflow_extract() will have runtime "
 
 #define miniflow_push_uint64_(MF, OFS, VALUE)                   \
 {                                                               \
-    MINIFLOW_ASSERT(MF.data < MF.end && (OFS) % 8 == 0          \
-                    && !(MF.map & (UINT64_MAX << (OFS) / 8)));  \
+    VLOG_WARN("miniflow_push_uint64: MF.map before:%" PRIu64 ,MF.map);			\
+    VLOG_WARN("miniflow_push_uint64: offset:%lu, value:%0x",OFS,VALUE);			\
+    MINIFLOW_ASSERT(MF.data < MF.end) \
+    MINIFLOW_ASSERT( (OFS) % 8 == 0 ) \
+    MINIFLOW_ASSERT( !(MF.map & (UINT64_MAX << (OFS) / 8)));  \
     *MF.data++ = VALUE;                                         \
     MF.map |= UINT64_C(1) << (OFS) / 8;                         \
+    VLOG_WARN("miniflow_push_uint64: MF.map after:%" PRIu64 ,MF.map);			\
 }
 
 #define miniflow_push_be64_(MF, OFS, VALUE) \
@@ -165,20 +170,28 @@ BUILD_MESSAGE("FLOW_WC_SEQ changed: miniflow_extract() will have runtime "
 {                                                                       \
     MINIFLOW_ASSERT(MF.data < MF.end &&                                 \
                     (((OFS) % 8 == 0 && !(MF.map & (UINT64_MAX << (OFS) / 8))) \
-                     || ((OFS) % 2 == 0 && MF.map & (UINT64_C(1) << (OFS) / 8) \
+                  || ((OFS) % 2 == 0 && MF.map & (UINT64_C(1) << (OFS) / 8) \
                          && !(MF.map & (UINT64_MAX << ((OFS) / 8 + 1)))))); \
                                                                         \
+    VLOG_WARN("miniflow_push_uint16: offset:%lu, value:%0x",OFS,VALUE);			\
+    VLOG_WARN("miniflow_push_uint16: MF.map:%" PRIu64 ,MF.map);			\
+    VLOG_WARN("miniflow_push_uint16: MF.data:%" PRIu64 ,MF.data);			\
     if ((OFS) % 8 == 0) {                                               \
         *(uint16_t *)MF.data = VALUE;                                   \
         MF.map |= UINT64_C(1) << (OFS) / 8;                             \
+    	VLOG_WARN("miniflow_push_uint16: case 0");			\
     } else if ((OFS) % 8 == 2) {                                        \
         *((uint16_t *)MF.data + 1) = VALUE;                             \
+    	VLOG_WARN("miniflow_push_uint16: case 2");			\
     } else if ((OFS) % 8 == 4) {                                        \
         *((uint16_t *)MF.data + 2) = VALUE;                             \
+    	VLOG_WARN("miniflow_push_uint16: case 4");			\
     } else if ((OFS) % 8 == 6) {                                        \
         *((uint16_t *)MF.data + 3) = VALUE;                             \
         MF.data++;                                                      \
+    	VLOG_WARN("miniflow_push_uint16: case 6");			\
     }                                                                   \
+    VLOG_WARN("miniflow_push_uint16: MF.data:%" PRIu64 ,MF.data);			\
 }
 
 #define miniflow_pad_to_64_(MF, OFS)                                    \
@@ -248,6 +261,7 @@ BUILD_MESSAGE("FLOW_WC_SEQ changed: miniflow_extract() will have runtime "
     miniflow_push_uint16_(MF, offsetof(struct flow, FIELD), VALUE)
 
 #define miniflow_push_be16(MF, FIELD, VALUE)                        \
+    VLOG_WARN("miniflow_push_be16: value:%0x", VALUE);			\
     miniflow_push_be16_(MF, offsetof(struct flow, FIELD), VALUE)
 
 #define miniflow_pad_to_64(MF, FIELD)                       \
@@ -441,6 +455,11 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
     char *frame = NULL;
     ovs_be16 dl_type;
     uint8_t nw_frag, nw_tos, nw_ttl, nw_proto;
+    struct flow *testflow = malloc(sizeof(struct flow));;
+
+    VLOG_WARN("miniflow_extract, dst flow A1");
+    dst->map = mf.map;
+    miniflow_expand(dst,testflow);
 
     /* Metadata. */
     if (md) {
@@ -460,6 +479,10 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
         }
     }
 
+    VLOG_WARN("miniflow_extract, dst flow A2");
+    dst->map = mf.map;
+    miniflow_expand(dst,testflow);
+
     if (base_layer == LAYER_2) {
         frame = data;
 
@@ -474,6 +497,7 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
             /* Link layer. */
             BUILD_ASSERT(offsetof(struct flow, dl_dst) + 6
                          == offsetof(struct flow, dl_src));
+	VLOG_WARN("miniflow_extract: miniflow_push_macs");
             miniflow_push_macs(mf, dl_dst, data);
             /* dl_type, vlan_tci. */
             vlan_tci = parse_vlan(&data, &size);
@@ -495,12 +519,27 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
         /* Network layer. */
         packet->l3_ofs = (char *)data - frame;
     } else if (base_layer == LAYER_3) {
+	int offset_dl_type_block = 8*(offsetof(struct flow, dl_type) / 8);
+	VLOG_WARN("miniflow_extract: l3");
         if (md)  {
             dl_type = md->packet_ethertype;
-    
+
+	    VLOG_WARN("miniflow_extract: setting dl_type block to 0...");
+		
+	    miniflow_push_uint64_(mf, offset_dl_type_block, 0);
+    VLOG_WARN("miniflow_extract, dst flow C1");
+    dst->map = mf.map;
+    miniflow_expand(dst,testflow);
+	    VLOG_WARN("miniflow_extract: setting dl_type to %0x...",dl_type);
             miniflow_push_be16(mf, dl_type, dl_type);
-    VLOG_WARN("miniflow_extract: dl_type set to %0x",dl_type);
+    VLOG_WARN("miniflow_extract, dst flow C2");
+    dst->map = mf.map;
+    miniflow_expand(dst,testflow);
+	    VLOG_WARN("miniflow_extract: setting vlan_tci to 0...");
             miniflow_push_be16(mf, vlan_tci, 0);
+    VLOG_WARN("miniflow_extract, dst flow C3");
+    dst->map = mf.map;
+    miniflow_expand(dst,testflow);
     
             /* Parse mpls. */
             /* FIXME: to factor-out with the above */
@@ -520,8 +559,12 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
             OVS_NOT_REACHED();
     } else
         OVS_NOT_REACHED();
-    
-    VLOG_WARN("miniflow_extract: dl_type set to %0x",dl_type);
+
+    VLOG_WARN("miniflow_extract, dst flow B");
+    dst->map = mf.map;
+    miniflow_expand(dst,testflow);
+
+    VLOG_WARN("miniflow_extract C");
 
     nw_frag = 0;
     if (OVS_LIKELY(dl_type == htons(ETH_TYPE_IP))) {
@@ -2085,8 +2128,14 @@ miniflow_destroy(struct miniflow *flow)
 void
 miniflow_expand(const struct miniflow *src, struct flow *dst)
 {
+    char * flow_str;
+
     memset(dst, 0, sizeof *dst);
     flow_union_with_miniflow(dst, src);
+
+    flow_str = flow_to_string(dst);
+    VLOG_WARN("miniflow_expand, dst flow: %s", flow_str);
+    free(flow_str);
 }
 
 /* Returns true if 'a' and 'b' are the equal miniflow, false otherwise. */

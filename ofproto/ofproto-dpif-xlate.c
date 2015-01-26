@@ -4374,7 +4374,6 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
     struct ds key_ds;
 
     VLOG_WARN("xlate_actions");
-    VLOG_WARN("xlate_actions: TM FIXME FIXME: add tracing of xout->actions content size here...");
 
     COVERAGE_INC(xlate_actions);
 

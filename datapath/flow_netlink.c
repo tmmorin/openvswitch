@@ -161,7 +161,7 @@ static bool match_validate(const struct sw_flow_match *match,
 			if (match->mask) {
 				printk(KERN_WARNING "match->mask->key.eth.type: %llx\n", match->mask->key.eth.type);
 			}
-			printk(KERN_WARNING "not adding MPLS to mask_allowed\n");
+			printk(KERN_WARNING "not adding MPLS to mask_allowed (ethtype wildcarded) (???)\n");
 		}
 	}
 	printk(KERN_WARNING "Mask allowed C2: %llx\n", (unsigned long long)mask_allowed);
@@ -1067,10 +1067,13 @@ int ovs_nla_get_match(struct sw_flow_match *match,
 	bool encap_valid = false;
 	int err;
 
+	printk(KERN_WARNING "ovs_nla_get_match\n");
+
 	err = parse_flow_nlattrs(nla_key, a, &key_attrs, log);
 	if (err)
 		return err;
 
+	printk(KERN_WARNING "ovs_nla_get_match:A\n");
 	if ((key_attrs & (1ULL << OVS_KEY_ATTR_ETHERNET)) &&
 	    (key_attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE)) &&
 	    (nla_get_be16(a[OVS_KEY_ATTR_ETHERTYPE]) == htons(ETH_P_8021Q))) {
@@ -1104,10 +1107,12 @@ int ovs_nla_get_match(struct sw_flow_match *match,
 		}
 	}
 
+	printk(KERN_WARNING "ovs_nla_get_match:B\n");
 	err = ovs_key_from_nlattrs(match, key_attrs, a, false, log);
 	if (err)
 		return err;
 
+	printk(KERN_WARNING "ovs_nla_get_match:C\n");
 	if (match->mask) {
 		if (!nla_mask) {
 			/* Create an exact match mask. We need to set to 0xff
@@ -1142,6 +1147,7 @@ int ovs_nla_get_match(struct sw_flow_match *match,
 		if (err)
 			goto free_newmask;
 
+	printk(KERN_WARNING "ovs_nla_get_match:D\n");
 		/* Always match on tci. */
 		SW_FLOW_KEY_PUT(match, eth.tci, htons(0xffff), true);
 
@@ -1187,11 +1193,14 @@ int ovs_nla_get_match(struct sw_flow_match *match,
 		err = ovs_key_from_nlattrs(match, mask_attrs, a, true, log);
 		if (err)
 			goto free_newmask;
+	printk(KERN_WARNING "ovs_nla_get_match:E\n");
 	}
+	printk(KERN_WARNING "ovs_nla_get_match:F\n");
 
 	if (!match_validate(match, key_attrs, mask_attrs, log))
 		err = -EINVAL;
 
+	printk(KERN_WARNING "ovs_nla_get_match:G\n");
 free_newmask:
 	kfree(newmask);
 	return err;
@@ -1933,12 +1942,14 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			return -EINVAL;
 
 		case OVS_ACTION_ATTR_USERSPACE:
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b1 (userspace)\n");
 			err = validate_userspace(a);
 			if (err)
 				return err;
 			break;
 
 		case OVS_ACTION_ATTR_OUTPUT:
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b2 (output)\n");
 			if (nla_get_u32(a) >= DP_MAX_PORTS)
 				return -EINVAL;
 
@@ -1946,6 +1957,7 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 
 		case OVS_ACTION_ATTR_HASH: {
 			const struct ovs_action_hash *act_hash = nla_data(a);
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b2 (hash)\n");
 
 			switch (act_hash->hash_alg) {
 			case OVS_HASH_ALG_L4:
@@ -2000,6 +2012,7 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			break;
 
 		case OVS_ACTION_ATTR_RECIRC:
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b2 (recirc)\n");
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_MPLS: {
@@ -2055,10 +2068,12 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			break;
 
 		case OVS_ACTION_ATTR_SAMPLE:
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b2 (sample)\n");
 			err = validate_and_copy_sample(a, key, depth, sfa,
 						       eth_type, vlan_tci, log);
 			if (err)
 				return err;
+			printk(KERN_WARNING "__ovs_nla_copy_actions:b22 (sample)\n");
 			skip_copy = true;
 			break;
 

@@ -28,6 +28,7 @@
 #include "hash.h"
 #include "util.h"
 
+
 struct dpif_flow_stats;
 struct ds;
 struct flow_wildcards;
@@ -118,6 +119,7 @@ struct flow {
     uint32_t conj_id;           /* Conjunction ID. */
     ofp_port_t actset_output;   /* Output port in action set. */
     uint8_t pad1[2];            /* Pad to 64 bits. */
+	
 
     /* L2, Order the same as in the Ethernet header! (64-bit aligned) */
     uint8_t dl_dst[ETH_ADDR_LEN]; /* Ethernet destination address. */
@@ -749,9 +751,17 @@ flow_union_with_miniflow(struct flow *dst, const struct miniflow *src)
     uint64_t *dst_u64 = (uint64_t *) dst;
     const uint64_t *p = miniflow_get_values(src);
     int idx;
+    char * flow_str;
 
+    printf("flow_union_with_miniflow: %d\n",idx);
+    idx=0;
     MAP_FOR_EACH_INDEX(idx, src->map) {
         dst_u64[idx] |= *p++;
+
+	printf("  idx: %d\n",idx);
+        flow_str = flow_to_string(dst);
+        printf("  dst flow: %s\n", flow_str);
+        free(flow_str);
     }
 }
 
