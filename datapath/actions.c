@@ -310,7 +310,8 @@ static int push_eth(struct sk_buff *skb, struct sw_flow_key *key,
 
 	skb_push(skb, ETH_HLEN);
 	skb_reset_mac_header(skb);
-	skb_reset_mac_len(skb);
+	/* using skb_reset_mac_len is not correct for MPLS frames */
+	skb->mac_len = ETH_HLEN;
 
 	ether_addr_copy(eth_hdr(skb)->h_source, ethh->addresses.eth_src);
 	ether_addr_copy(eth_hdr(skb)->h_dest, ethh->addresses.eth_dst);

@@ -2694,8 +2694,6 @@ compose_output_action__(struct xlate_ctx *ctx, ofp_port_t ofp_port,
             const uint8_t eth_addr_zeroes[ETH_ADDR_LEN]
                 = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
-    	    VLOG_WARN("build_tunnel_send, pop/push eth if mismatching ports");
-
             odp_put_push_eth_action(ctx->xout->odp_actions, eth_addr_zeroes,
                                     eth_addr_zeroes, flow->dl_type);
         }

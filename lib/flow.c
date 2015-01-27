@@ -122,8 +122,7 @@ struct mf_ctx {
  * away.  Some GCC versions gave warnings on ALWAYS_INLINE, so these are
  * defined as macros. */
 
-/*#if (FLOW_WC_SEQ != 31)   <=== right value !*/
-#if (FLOW_WC_SEQ != 30)
+#if (FLOW_WC_SEQ != 31)
 #define MINIFLOW_ASSERT(X) ovs_assert(X)
 BUILD_MESSAGE("FLOW_WC_SEQ changed: miniflow_extract() will have runtime "
                "assertions enabled. Consider updating FLOW_WC_SEQ after "
@@ -522,11 +521,16 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
 	int offset_dl_type_block = 8*(offsetof(struct flow, dl_type) / 8);
 	VLOG_WARN("miniflow_extract: l3");
         if (md)  {
+            uint8_t macs[2 * ETH_ADDR_LEN] = {
+	        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+            };
             dl_type = md->packet_ethertype;
 
-	    VLOG_WARN("miniflow_extract: setting dl_type block to 0...");
+	    VLOG_WARN("miniflow_extract: initializing dl_type block to 0...");
 		
-	    miniflow_push_uint64_(mf, offset_dl_type_block, 0);
+	    miniflow_push_macs(mf, dl_dst, macs);
+
     VLOG_WARN("miniflow_extract, dst flow C1");
     dst->map = mf.map;
     miniflow_expand(dst,testflow);
@@ -565,7 +569,6 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
     miniflow_expand(dst,testflow);
 
     VLOG_WARN("miniflow_extract C");
-
     nw_frag = 0;
     if (OVS_LIKELY(dl_type == htons(ETH_TYPE_IP))) {
         const struct ip_header *nh = data;

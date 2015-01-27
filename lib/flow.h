@@ -120,7 +120,6 @@ struct flow {
     ofp_port_t actset_output;   /* Output port in action set. */
     uint8_t pad1[2];            /* Pad to 64 bits. */
 	
-
     /* L2, Order the same as in the Ethernet header! (64-bit aligned) */
     uint8_t dl_dst[ETH_ADDR_LEN]; /* Ethernet destination address. */
     uint8_t dl_src[ETH_ADDR_LEN]; /* Ethernet source address. */
