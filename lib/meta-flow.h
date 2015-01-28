@@ -588,7 +588,7 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Type: MAC.
      * Maskable: bitwise.
      * Formatting: Ethernet.
-     * Prerequisites: Ethernet.
+     * Prerequisites: none.
      * Access: read/write.
      * NXM: NXM_OF_ETH_SRC(2) since v1.1.
      * OXM: OXM_OF_ETH_SRC(4) since OF1.2 and v1.7.
@@ -608,7 +608,7 @@ enum OVS_PACKED_ENUM mf_field_id {
      * Type: MAC.
      * Maskable: bitwise.
      * Formatting: Ethernet.
-     * Prerequisites: Ethernet.
+     * Prerequisites: none.
      * Access: read/write.
      * NXM: NXM_OF_ETH_DST(1) since v1.1.
      * OXM: OXM_OF_ETH_DST(3) since OF1.2 and v1.7.

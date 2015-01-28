@@ -38,9 +38,6 @@
 #include "odp-util.h"
 #include "random.h"
 #include "unaligned.h"
-#include "openvswitch/vlog.h"
-
-VLOG_DEFINE_THIS_MODULE(flow);
 
 COVERAGE_DEFINE(flow_extract);
 COVERAGE_DEFINE(miniflow_malloc);
@@ -133,9 +130,8 @@ BUILD_MESSAGE("FLOW_WC_SEQ changed: miniflow_extract() will have runtime "
 
 #define miniflow_push_uint64_(MF, OFS, VALUE)                   \
 {                                                               \
-    MINIFLOW_ASSERT(MF.data < MF.end) \
-    MINIFLOW_ASSERT( (OFS) % 8 == 0 ) \
-    MINIFLOW_ASSERT( !(MF.map & (UINT64_MAX << (OFS) / 8)));  \
+    MINIFLOW_ASSERT(MF.data < MF.end && (OFS) % 8 == 0          \
+                    && !(MF.map & (UINT64_MAX << (OFS) / 8)));  \
     *MF.data++ = VALUE;                                         \
     MF.map |= UINT64_C(1) << (OFS) / 8;                         \
 }
@@ -166,7 +162,7 @@ BUILD_MESSAGE("FLOW_WC_SEQ changed: miniflow_extract() will have runtime "
 {                                                                       \
     MINIFLOW_ASSERT(MF.data < MF.end &&                                 \
                     (((OFS) % 8 == 0 && !(MF.map & (UINT64_MAX << (OFS) / 8))) \
-                  || ((OFS) % 2 == 0 && MF.map & (UINT64_C(1) << (OFS) / 8) \
+                     || ((OFS) % 2 == 0 && MF.map & (UINT64_C(1) << (OFS) / 8) \
                          && !(MF.map & (UINT64_MAX << ((OFS) / 8 + 1)))))); \
                                                                         \
     if ((OFS) % 8 == 0) {                                               \
@@ -272,8 +268,9 @@ parse_mpls(void **datap, size_t *sizep)
 
     while ((mh = data_try_pull(datap, sizep, sizeof *mh))) {
         count++;
-        if (mh->mpls_lse.lo & htons(1 << MPLS_BOS_SHIFT))
+        if (mh->mpls_lse.lo & htons(1 << MPLS_BOS_SHIFT)) {
             break;
+        }
     }
     return MIN(count, FLOW_MAX_MPLS_LABELS);
 }
@@ -438,10 +435,6 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
     char *frame = NULL;
     ovs_be16 dl_type;
     uint8_t nw_frag, nw_tos, nw_ttl, nw_proto;
-    struct flow *testflow = malloc(sizeof(struct flow));;
-
-    dst->map = mf.map;
-    miniflow_expand(dst,testflow);
 
     /* Metadata. */
     if (md) {
@@ -460,9 +453,6 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
             miniflow_push_uint32(mf, base_layer, base_layer);
         }
     }
-
-    dst->map = mf.map;
-    miniflow_expand(dst,testflow);
 
     if (base_layer == LAYER_2) {
         frame = data;
@@ -496,37 +486,31 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
 
         /* Network layer. */
         packet->l3_ofs = (char *)data - frame;
-    } else if (base_layer == LAYER_3) {
-        if (md)  {
-            uint8_t macs[2 * ETH_ADDR_LEN] = {
-	        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-            };
-	    miniflow_push_macs(mf, dl_dst, macs);
+    } else if (base_layer == LAYER_3 && md) {
+	uint8_t macs[2 * ETH_ADDR_LEN] = {
+	    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	    0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+	};
+	miniflow_push_macs(mf, dl_dst, macs);
 
-            dl_type = md->packet_ethertype;
+        dl_type = md->packet_ethertype;
 
-            miniflow_push_be16(mf, dl_type, dl_type);
-            miniflow_push_be16(mf, vlan_tci, 0);
+        miniflow_push_be16(mf, dl_type, dl_type);
+        miniflow_push_be16(mf, vlan_tci, 0);
  
-            /* Parse mpls. */
-            /* FIXME: to factor-out with the above */
-            if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
-                int count;
-                const void *mpls = data;
-            
-                packet->l2_5_ofs = (char *)data - frame;
-                count = parse_mpls(&data, &size);
-                miniflow_push_words_32(mf, mpls_lse, mpls, count);
-            }
-    
-            /* Network layer. */
-            /** FIXME: not true for MPLS packets */
-            packet->l3_ofs = (char *)data - frame;
-        } else
-            OVS_NOT_REACHED();
-    } else
-        OVS_NOT_REACHED();
+        /* Parse mpls. */
+        /* FIXME: to factor-out with the above */
+        if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
+            int count;
+            const void *mpls = data;
+ 
+            packet->l2_5_ofs = (char *)data - frame;
+            count = parse_mpls(&data, &size);
+            miniflow_push_words_32(mf, mpls_lse, mpls, count);
+        }
+    } else {
+	OVS_NOT_REACHED();
+    }
 
     nw_frag = 0;
     if (OVS_LIKELY(dl_type == htons(ETH_TYPE_IP))) {

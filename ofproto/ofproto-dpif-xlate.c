@@ -4348,7 +4348,6 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
     size_t ofpacts_len;
     bool tnl_may_send;
     bool is_icmp;
-    struct ds key_ds;
 
     COVERAGE_INC(xlate_actions);
 
