@@ -474,16 +474,6 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
             miniflow_push_be16(mf, vlan_tci, vlan_tci);
         }
 
-        /* Parse mpls. */
-        if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
-            int count;
-            const void *mpls = data;
-
-            packet->l2_5_ofs = (char *)data - frame;
-            count = parse_mpls(&data, &size);
-            miniflow_push_words_32(mf, mpls_lse, mpls, count);
-        }
-
         /* Network layer. */
         packet->l3_ofs = (char *)data - frame;
     } else if (base_layer == LAYER_3 && md) {
@@ -497,21 +487,20 @@ miniflow_extract(struct ofpbuf *packet, const struct pkt_metadata *md,
 
         miniflow_push_be16(mf, dl_type, dl_type);
         miniflow_push_be16(mf, vlan_tci, 0);
- 
-        /* Parse mpls. */
-        /* FIXME: to factor-out with the above */
-        if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
-            int count;
-            const void *mpls = data;
- 
-            packet->l2_5_ofs = (char *)data - frame;
-            count = parse_mpls(&data, &size);
-            miniflow_push_words_32(mf, mpls_lse, mpls, count);
-        }
     } else {
 	OVS_NOT_REACHED();
     }
 
+    /* Parse mpls. */
+    if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
+        int count;
+        const void *mpls = data;
+ 
+        packet->l2_5_ofs = (char *)data - frame;
+        count = parse_mpls(&data, &size);
+        miniflow_push_words_32(mf, mpls_lse, mpls, count);
+    }
+ 
     nw_frag = 0;
     if (OVS_LIKELY(dl_type == htons(ETH_TYPE_IP))) {
         const struct ip_header *nh = data;
