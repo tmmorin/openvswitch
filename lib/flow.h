@@ -752,15 +752,9 @@ flow_union_with_miniflow(struct flow *dst, const struct miniflow *src)
     int idx;
     char * flow_str;
 
-    printf("flow_union_with_miniflow: %d\n",idx);
     idx=0;
     MAP_FOR_EACH_INDEX(idx, src->map) {
         dst_u64[idx] |= *p++;
-
-	printf("  idx: %d\n",idx);
-        flow_str = flow_to_string(dst);
-        printf("  dst flow: %s\n", flow_str);
-        free(flow_str);
     }
 }
 

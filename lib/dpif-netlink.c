@@ -1509,8 +1509,6 @@ dpif_netlink_encode_execute(int dp_ifindex, const struct dpif_execute *d_exec,
     struct ovs_header *k_exec;
     size_t key_ofs;
 
-    VLOG_WARN("dpif_netlink_encode_execute");
-
     ofpbuf_prealloc_tailroom(buf, (64
                                    + ofpbuf_size(d_exec->packet)
                                    + ODP_KEY_METADATA_SIZE
@@ -1568,7 +1566,6 @@ dpif_netlink_operate__(struct dpif_netlink *dpif,
         struct dpif_flow_get *get;
         struct dpif_netlink_flow flow;
 
-        VLOG_WARN("dpif_netlink_operate__ ..."); 
         ofpbuf_use_stub(&aux->request,
                         aux->request_stub, sizeof aux->request_stub);
         aux->txn.request = &aux->request;
@@ -1578,21 +1575,17 @@ dpif_netlink_operate__(struct dpif_netlink *dpif,
 
         switch (op->type) {
         case DPIF_OP_FLOW_PUT:
-            VLOG_WARN("dpif_netlink_operate__ DPIF_OP_FLOW_PUT"); 
             put = &op->u.flow_put;
             dpif_netlink_init_flow_put(dpif, put, &flow);
             if (put->stats) {
                 flow.nlmsg_flags |= NLM_F_ECHO;
                 aux->txn.reply = &aux->reply;
             }
-            VLOG_WARN("dpif_netlink_operate__ before dpif_netlink_flow_to_ofpbuf"); 
             dpif_netlink_flow_to_ofpbuf(&flow, &aux->request);
-            VLOG_WARN("dpif_netlink_operate__ after dpif_netlink_flow_to_ofpbuf"); 
             break;
 
         case DPIF_OP_FLOW_DEL:
             del = &op->u.flow_del;
-        VLOG_WARN("dpif_netlink_operate__ DPIF_OP_FLOW_DEL"); 
             dpif_netlink_init_flow_del(dpif, del, &flow);
             if (del->stats) {
                 flow.nlmsg_flags |= NLM_F_ECHO;
@@ -1638,7 +1631,6 @@ dpif_netlink_operate__(struct dpif_netlink *dpif,
         txnsp[i] = &auxes[i].txn;
     }
     nl_transact_multiple(NETLINK_GENERIC, txnsp, n_ops);
-        VLOG_WARN("dpif_netlink_operate__ after nl_transact_multiple"); 
 
     for (i = 0; i < n_ops; i++) {
         struct op_auxdata *aux = &auxes[i];
@@ -1652,19 +1644,15 @@ dpif_netlink_operate__(struct dpif_netlink *dpif,
 
         switch (op->type) {
         case DPIF_OP_FLOW_PUT:
-            VLOG_WARN("dpif_netlink_operate__ DPIF_OP_FLOW_PUT / error processing"); 
             put = &op->u.flow_put;
             if (put->stats) {
                 if (!op->error) {
                     struct dpif_netlink_flow reply;
 
-            VLOG_WARN("dpif_netlink_operate__ DPIF_OP_FLOW_PUT / error processing : dpif_netlink_flow_from_ofpbuf"); 
                     op->error = dpif_netlink_flow_from_ofpbuf(&reply,
                                                               txn->reply);
-            VLOG_WARN("dpif_netlink_operate__ DPIF_OP_FLOW_PUT / error processing : after dpif_netlink_flow_from_ofpbuf"); 
                     if (!op->error) {
                         dpif_netlink_flow_get_stats(&reply, put->stats);
-            VLOG_WARN("dpif_netlink_operate__ DPIF_OP_FLOW_PUT / error processing : after ... get stats"); 
                     }
                 }
             }
@@ -2781,9 +2769,7 @@ dpif_netlink_flow_to_ofpbuf(const struct dpif_netlink_flow *flow,
                             struct ofpbuf *buf)
 {
     struct ovs_header *ovs_header;
-    struct ds ds;
 
-    VLOG_WARN("dpif_netlink_flow_to_ofpbuf");
     nl_msg_put_genlmsghdr(buf, 0, ovs_flow_family,
                           NLM_F_REQUEST | flow->nlmsg_flags,
                           flow->cmd, OVS_FLOW_VERSION);
@@ -2802,30 +2788,11 @@ dpif_netlink_flow_to_ofpbuf(const struct dpif_netlink_flow *flow,
     }
     if (!flow->ufid_terse || !flow->ufid_present) {
         if (flow->key_len) {
-    	    VLOG_WARN("dpif_netlink_flow_to_ofpbuf: adding flow->key to netlink");
-
-	    ds_init(&ds);
-            odp_flow_key_format(flow->key, flow->key_len, &ds);
-
-    	    VLOG_WARN("dpif_netlink_flow_to_ofpbuf: flow->key: %s", ds_cstr(&ds) );
-	    ds_destroy(&ds);
-
-
             nl_msg_put_unspec(buf, OVS_FLOW_ATTR_KEY,
                               flow->key, flow->key_len);
         }
 
         if (flow->mask_len) {
-
-	    if (flow->key_len) {
-		    ds_init(&ds);
-		    odp_flow_format(flow->key, flow->key_len, flow->mask, flow->mask_len, NULL, &ds, true);
-
-	    	    VLOG_WARN("dpif_netlink_flow_to_ofpbuf: flow: %s", ds_cstr(&ds) );
-		    ds_destroy(&ds);
-	    }
-
-
             nl_msg_put_unspec(buf, OVS_FLOW_ATTR_MASK,
                               flow->mask, flow->mask_len);
         }
@@ -2846,7 +2813,6 @@ dpif_netlink_flow_to_ofpbuf(const struct dpif_netlink_flow *flow,
     if (flow->probe) {
         nl_msg_put_flag(buf, OVS_FLOW_ATTR_PROBE);
     }
-    VLOG_WARN("dpif_netlink_flow_to_ofpbuf end");
 }
 
 /* Clears 'flow' to "empty" values. */

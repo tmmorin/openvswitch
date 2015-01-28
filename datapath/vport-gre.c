@@ -119,6 +119,7 @@ static int gre_rcv(struct sk_buff *skb,
 			       filter_tnl_flags(tpi->flags), NULL, 0);
 
 	skb->protocol = tpi->proto;
+
 	ovs_vport_receive(vport, skb, &tun_info, 
 		(tpi->proto != htons(ETH_P_TEB)));
 

@@ -129,8 +129,10 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	struct ethhdr *hdr;
 
 	/* Networking stack do not allow simultaneous Tunnel and MPLS GSO. */
-	if (skb_encapsulation(skb))
+	if (skb_encapsulation(skb)) {
+		printk(KERN_WARNING "push_mpls: Networking stack do not allow simultaneous Tunnel and MPLS GSO\n");
 		return -ENOTSUPP;
+	}
 
 	if (skb_cow_head(skb, MPLS_HLEN) < 0)
 		return -ENOMEM;
@@ -167,13 +169,10 @@ static int pop_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	struct ethhdr *hdr;
 	int err;
 
-	printk(KERN_WARNING "pop_mpls: A\n");
-	printk(KERN_WARNING "pop_mpls: mac_len:%d\n",skb->mac_len);
 	err = skb_ensure_writable(skb, skb->mac_len + MPLS_HLEN);
 	if (unlikely(err))
 		return err;
 
-	printk(KERN_WARNING "pop_mpls: B\n");
 	if (skb->ip_summed == CHECKSUM_COMPLETE)
 		skb->csum = csum_sub(skb->csum,
 				     csum_partial(skb_mpls_header(skb),
@@ -270,11 +269,8 @@ static int set_eth_addr(struct sk_buff *skb, struct sw_flow_key *key,
 static int pop_eth(struct sk_buff *skb, struct sw_flow_key *key)
 {
 	skb_pull_rcsum(skb, ETH_HLEN);
-	printk(KERN_WARNING "pop_eth: before skb_reset_mac_header, skb->mac_len: %d)\n",skb->mac_len);
 	skb_reset_mac_header(skb);
-	printk(KERN_WARNING "pop_eth: before skb->mac_len decrease: skb->mac_len: %d)\n",skb->mac_len);
 	skb->mac_len -= ETH_HLEN;
-	printk(KERN_WARNING "pop_eth: after skb->mac_len decrease: skb->mac_len: %d)\n",skb->mac_len);
 
 	invalidate_flow_key(key);
 	return 0;
@@ -283,9 +279,6 @@ static int pop_eth(struct sk_buff *skb, struct sw_flow_key *key)
 static int push_eth(struct sk_buff *skb, struct sw_flow_key *key,
 		    const struct ovs_action_push_eth *ethh)
 {
-	printk(KERN_WARNING "push_eth: 1 skb->mac_len: %d\n", skb->mac_len);
-	printk(KERN_WARNING "push_eth: 1 skb->network_header: %d\n", skb->network_header);
-	printk(KERN_WARNING "push_eth: 1 skb->mac_header: %d\n", skb->mac_header);
 	/* De-accelerate any hardware accelerated VLAN tag added to a previous
 	 * Ethernet header */
 	if (unlikely(vlan_tx_tag_present(skb))) {
@@ -608,13 +601,10 @@ static void do_output(struct datapath *dp, struct sk_buff *skb, int out_port)
 {
 	struct vport *vport = ovs_vport_rcu(dp, out_port);
 
-	if (likely(vport)) {
-		printk(KERN_WARNING "do_ouptut: ovs_vport_send\n");
+	if (likely(vport))
 		ovs_vport_send(vport, skb);
-	} else {
-		printk(KERN_WARNING "do_ouptut: no vport, kfree_skb\n");
+	else
 		kfree_skb(skb);
-	}
 }
 
 static int output_userspace(struct datapath *dp, struct sk_buff *skb,
@@ -850,11 +840,9 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 
 			prev_port = -1;
 		}
-		printk(KERN_WARNING "do_execute_actions: nla_type:%d\n",nla_type(a));
 
 		switch (nla_type(a)) {
 		case OVS_ACTION_ATTR_OUTPUT:
-			printk(KERN_WARNING "do_execute_actions: output\n");
 			prev_port = nla_get_u32(a);
 			break;
 
@@ -867,12 +855,10 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_MPLS:
-			printk(KERN_WARNING "do_execute_actions: push_mpls\n");
 			err = push_mpls(skb, key, nla_data(a));
 			break;
 
 		case OVS_ACTION_ATTR_POP_MPLS:
-			printk(KERN_WARNING "do_execute_actions: pop_mpls\n");
 			err = pop_mpls(skb, key, nla_get_be16(a));
 			break;
 
@@ -885,17 +871,14 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_ETH:
-			printk(KERN_WARNING "do_execute_actions: push_eth\n");
 			err = push_eth(skb, key, nla_data(a));
 			break;
 
 		case OVS_ACTION_ATTR_POP_ETH:
-			printk(KERN_WARNING "do_execute_actions: pop_eth\n");
 			err = pop_eth(skb, key);
 			break;
 
 		case OVS_ACTION_ATTR_RECIRC:
-			printk(KERN_WARNING "do_execute_actions: recirc\n");
 			err = execute_recirc(dp, skb, key, a, rem);
 			if (nla_is_last(a, rem)) {
 				/* If this is the last action, the skb has
@@ -907,7 +890,6 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			break;
 
 		case OVS_ACTION_ATTR_SET:
-			printk(KERN_WARNING "do_execute_actions: set\n");
 			err = execute_set_action(skb, key, nla_data(a));
 			break;
 
@@ -917,20 +899,15 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 		}
 
 		if (unlikely(err)) {
-			printk(KERN_WARNING "do_execute_actions: err:%d\n",err);
-			
 			kfree_skb(skb);
 			return err;
 		}
 	}
 
-	if (prev_port != -1) {
-		printk(KERN_WARNING "do_execute_actions: do_output\n");
+	if (prev_port != -1)
 		do_output(dp, skb, prev_port);
-	} else {
-		printk(KERN_WARNING "do_execute_actions: consume_skb\n");
+	else
 		consume_skb(skb);
-	}
 
 	return 0;
 }
@@ -969,8 +946,6 @@ int ovs_execute_actions(struct datapath *dp, struct sk_buff *skb,
 	int level = this_cpu_read(exec_actions_level);
 	int err;
 
-	printk(KERN_WARNING "ovs_execute_actions\n");
-
 	if (unlikely(level >= EXEC_ACTIONS_LEVEL_LIMIT)) {
 		if (net_ratelimit())
 			pr_warn("%s: packet loop detected, dropping.\n",
@@ -981,11 +956,9 @@ int ovs_execute_actions(struct datapath *dp, struct sk_buff *skb,
 	}
 
 	this_cpu_inc(exec_actions_level);
-	printk(KERN_WARNING "ovs_execute_actions: do_execute_actions\n");
 	err = do_execute_actions(dp, skb, key,
 				 acts->actions, acts->actions_len);
 
-	printk(KERN_WARNING "ovs_execute_actions: do_execute_actions, err=%d\n",err);
 	if (!level)
 		process_deferred_actions(dp);
 

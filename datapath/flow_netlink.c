@@ -147,31 +147,17 @@ static bool match_validate(const struct sw_flow_match *match,
 		if (match->mask && (match->mask->key.eth.type == htons(0xffff)))
 			mask_allowed |= 1ULL << OVS_KEY_ATTR_ARP;
 	}
-	printk(KERN_WARNING "Mask allowed C1: %llx\n", (unsigned long long)mask_allowed);
-
-	printk(KERN_WARNING "match->key->eth.type: %llx\n", match->key->eth.type);
 
 	if (eth_p_mpls(match->key->eth.type)) {
-		printk(KERN_WARNING "eth_type is MPLS...\n");
 		key_expected |= 1ULL << OVS_KEY_ATTR_MPLS;
-		if (match->mask && (match->mask->key.eth.type == htons(0xffff))) {
-			printk(KERN_WARNING "adding MPLS to mask_allowed\n");
+		if (match->mask && (match->mask->key.eth.type == htons(0xffff)))
 			mask_allowed |= 1ULL << OVS_KEY_ATTR_MPLS;
-		} else {
-			if (match->mask) {
-				printk(KERN_WARNING "match->mask->key.eth.type: %llx\n", match->mask->key.eth.type);
-			}
-			printk(KERN_WARNING "not adding MPLS to mask_allowed (ethtype wildcarded) (???)\n");
-		}
 	}
-	printk(KERN_WARNING "Mask allowed C2: %llx\n", (unsigned long long)mask_allowed);
 
 	if (match->key->eth.type == htons(ETH_P_IP)) {
 		key_expected |= 1ULL << OVS_KEY_ATTR_IPV4;
 		if (match->mask && (match->mask->key.eth.type == htons(0xffff)))
 			mask_allowed |= 1ULL << OVS_KEY_ATTR_IPV4;
-
-		printk(KERN_WARNING "Mask allowed D: %llx\n", (unsigned long long)mask_allowed);
 
 		if (match->key->ip.frag != OVS_FRAG_TYPE_LATER) {
 			if (match->key->ip.proto == IPPROTO_UDP) {
@@ -202,7 +188,6 @@ static bool match_validate(const struct sw_flow_match *match,
 			}
 		}
 	}
-	printk(KERN_WARNING "Mask allowed E: %llx\n", (unsigned long long)mask_allowed);
 
 	if (match->key->eth.type == htons(ETH_P_IPV6)) {
 		key_expected |= 1ULL << OVS_KEY_ATTR_IPV6;
@@ -247,8 +232,6 @@ static bool match_validate(const struct sw_flow_match *match,
 		}
 	}
 
-	OVS_NLERR(log, "keyattrs=%llx", (unsigned long long) key_attrs);
-
 	if ((key_attrs & key_expected) != key_expected) {
 		/* Key attributes check failed. */
 		OVS_NLERR(log, "Missing key (keys=%llx, expected=%llx)",
@@ -264,7 +247,6 @@ static bool match_validate(const struct sw_flow_match *match,
 			  (unsigned long long)mask_allowed);
 		return false;
 	}
-
 
 	return true;
 }
@@ -655,7 +637,6 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 {
 	bool is_layer3;
 
-	printk(KERN_WARNING "metadata_from_nlattrs: attrs A: 0x%llx\n", *attrs);
 	if (*attrs & (1ULL << OVS_KEY_ATTR_DP_HASH)) {
 		u32 hash_val = nla_get_u32(a[OVS_KEY_ATTR_DP_HASH]);
 
@@ -669,7 +650,6 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 		SW_FLOW_KEY_PUT(match, recirc_id, recirc_id, is_mask);
 		*attrs &= ~(1ULL << OVS_KEY_ATTR_RECIRC_ID);
 	}
-	printk(KERN_WARNING "metadata_from_nlattrs: attrs B: 0x%llx\n", *attrs);
 
 	if (*attrs & (1ULL << OVS_KEY_ATTR_PRIORITY)) {
 		SW_FLOW_KEY_PUT(match, phy.priority,
@@ -700,14 +680,12 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 		SW_FLOW_KEY_PUT(match, phy.skb_mark, mark, is_mask);
 		*attrs &= ~(1ULL << OVS_KEY_ATTR_SKB_MARK);
 	}
-	printk(KERN_WARNING "metadata_from_nlattrs: attrs C1: 0x%llx\n", *attrs);
 	if (*attrs & (1ULL << OVS_KEY_ATTR_TUNNEL)) {
 		if (ipv4_tun_from_nlattr(a[OVS_KEY_ATTR_TUNNEL], match,
 					 is_mask, log))
 			return -EINVAL;
 		*attrs &= ~(1ULL << OVS_KEY_ATTR_TUNNEL);
 	}
-	printk(KERN_WARNING "metadata_from_nlattrs: attrs C2: 0x%llx\n", *attrs);
 
 	/* For full flow keys the layer is determined based on the presence of
 	 * OVS_KEY_ATTR_ETHERNET */
@@ -720,11 +698,6 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 	 * attributes.  OVS_KEY_ATTR_PACKET_ETHERTYPE is then used to specify
 	 * the starting layer of the packet.  Packets with Ethernet headers
 	 * have this attribute set to 0 */
-	printk(KERN_WARNING "metadata_from_nlattrs: OVS_KEY_ATTR_MPLS:            %llx\n", 1ULL<< OVS_KEY_ATTR_MPLS);
-	printk(KERN_WARNING "metadata_from_nlattrs: OVS_KEY_ATTR_PACKET_ETHERTYPE:%llx\n", 1ULL<< OVS_KEY_ATTR_PACKET_ETHERTYPE);
-	printk(KERN_WARNING "metadata_from_nlattrs: attrs: 0x%llx\n", *attrs);
-	printk(KERN_WARNING "metadata_from_nlattrs: is_mask: %d\n", is_mask);
-	printk(KERN_WARNING "metadata_from_nlattrs: is_layer3:%d\n",is_layer3);
 	if (*attrs & (1ULL << OVS_KEY_ATTR_PACKET_ETHERTYPE)) {
 		__be16 eth_type;
 
@@ -738,7 +711,6 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 				     eth_p_mpls(eth_type) );
 
 		}
-		printk(KERN_WARNING "metadata_from_nlattrs: eth_type:%0x\n",htons(eth_type));
 		SW_FLOW_KEY_PUT(match, eth.type, eth_type, is_mask);
 	}
 
@@ -1067,13 +1039,10 @@ int ovs_nla_get_match(struct sw_flow_match *match,
 	bool encap_valid = false;
 	int err;
 
-	printk(KERN_WARNING "ovs_nla_get_match\n");
-
 	err = parse_flow_nlattrs(nla_key, a, &key_attrs, log);
 	if (err)
 		return err;
 
-	printk(KERN_WARNING "ovs_nla_get_match:A\n");
 	if ((key_attrs & (1ULL << OVS_KEY_ATTR_ETHERNET)) &&
 	    (key_attrs & (1ULL << OVS_KEY_ATTR_ETHERTYPE)) &&
 	    (nla_get_be16(a[OVS_KEY_ATTR_ETHERTYPE]) == htons(ETH_P_8021Q))) {
@@ -1107,12 +1076,10 @@ int ovs_nla_get_match(struct sw_flow_match *match,
 		}
 	}
 
-	printk(KERN_WARNING "ovs_nla_get_match:B\n");
 	err = ovs_key_from_nlattrs(match, key_attrs, a, false, log);
 	if (err)
 		return err;
 
-	printk(KERN_WARNING "ovs_nla_get_match:C\n");
 	if (match->mask) {
 		if (!nla_mask) {
 			/* Create an exact match mask. We need to set to 0xff
@@ -1147,7 +1114,6 @@ int ovs_nla_get_match(struct sw_flow_match *match,
 		if (err)
 			goto free_newmask;
 
-	printk(KERN_WARNING "ovs_nla_get_match:D\n");
 		/* Always match on tci. */
 		SW_FLOW_KEY_PUT(match, eth.tci, htons(0xffff), true);
 
@@ -1193,14 +1159,11 @@ int ovs_nla_get_match(struct sw_flow_match *match,
 		err = ovs_key_from_nlattrs(match, mask_attrs, a, true, log);
 		if (err)
 			goto free_newmask;
-	printk(KERN_WARNING "ovs_nla_get_match:E\n");
 	}
-	printk(KERN_WARNING "ovs_nla_get_match:F\n");
 
 	if (!match_validate(match, key_attrs, mask_attrs, log))
 		err = -EINVAL;
 
-	printk(KERN_WARNING "ovs_nla_get_match:G\n");
 free_newmask:
 	kfree(newmask);
 	return err;
@@ -1287,9 +1250,6 @@ int ovs_nla_put_flow(const struct sw_flow_key *swkey,
 		goto nla_put_failure;
 
 	if (swkey->phy.is_layer3) {
-		printk(KERN_WARNING "ovs_nla_put_flow: skipping to no_eth\n");
-		printk(KERN_WARNING "ovs_nla_put_flow:    (output->eth.type = %x)\n",output->eth.type);
-		printk(KERN_WARNING "ovs_nla_put_flow:    setting OVS_KEY_ATTR_PACKET_ETHERTYPE to this value (%0x)\n",htons(output->eth.type));
 		if (nla_put_be16(skb, OVS_KEY_ATTR_PACKET_ETHERTYPE, output->eth.type))
 			goto nla_put_failure;
 		goto noethernet;
@@ -1328,7 +1288,6 @@ int ovs_nla_put_flow(const struct sw_flow_key *swkey,
 		goto unencap;
 	}
 
-	printk(KERN_WARNING "ovs_nla_put_flow: nla_put_be16(skb, OVS_KEY_ATTR_ETHERTYPE, output->eth.type = %x)\n",output->eth.type);
 	if (nla_put_be16(skb, OVS_KEY_ATTR_ETHERTYPE, output->eth.type))
 		goto nla_put_failure;
 
@@ -1760,7 +1719,6 @@ static int validate_set(const struct nlattr *a,
 	     ovs_key_lens[key_type] != -1))
 		return -EINVAL;
 
-	printk(KERN_WARNING "validate_set: key_type:%d\n",key_type);
 	switch (key_type) {
 	const struct ovs_key_ipv4 *ipv4_key;
 	const struct ovs_key_ipv6 *ipv6_key;
@@ -1853,7 +1811,6 @@ static int validate_set(const struct nlattr *a,
 		return -EINVAL;
 	}
 
-	printk(KERN_WARNING "validate_set: key_type:%d, return 0\n",key_type);
 	return 0;
 }
 
@@ -1905,9 +1862,6 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 	if (depth >= SAMPLE_ACTION_DEPTH)
 		return -EOVERFLOW;
 
-	printk(KERN_WARNING "__ovs_nla_copy_actions:start\n");
-	printk(KERN_WARNING "__ovs_nla_copy_actions:  is_layer3: %d\n",is_layer3);
-
 	nla_for_each_nested(a, attr, rem) {
 		/* Expected argument lengths, (u32)-1 for variable length. */
 		static const u32 action_lens[OVS_ACTION_ATTR_MAX + 1] = {
@@ -1928,28 +1882,23 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 		int type = nla_type(a);
 		bool skip_copy;
 
-		printk(KERN_WARNING "__ovs_nla_copy_actions:b0 (type:%d)\n",type);
-
 		if (type > OVS_ACTION_ATTR_MAX ||
 		    (action_lens[type] != nla_len(a) &&
 		     action_lens[type] != (u32)-1))
 			return -EINVAL;
 
-		printk(KERN_WARNING "__ovs_nla_copy_actions:b00 (type:%d)\n",type);
 		skip_copy = false;
 		switch (type) {
 		case OVS_ACTION_ATTR_UNSPEC:
 			return -EINVAL;
 
 		case OVS_ACTION_ATTR_USERSPACE:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b1 (userspace)\n");
 			err = validate_userspace(a);
 			if (err)
 				return err;
 			break;
 
 		case OVS_ACTION_ATTR_OUTPUT:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b2 (output)\n");
 			if (nla_get_u32(a) >= DP_MAX_PORTS)
 				return -EINVAL;
 
@@ -1957,7 +1906,6 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 
 		case OVS_ACTION_ATTR_HASH: {
 			const struct ovs_action_hash *act_hash = nla_data(a);
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b2 (hash)\n");
 
 			switch (act_hash->hash_alg) {
 			case OVS_HASH_ALG_L4:
@@ -1970,37 +1918,28 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 		}
 
 		case OVS_ACTION_ATTR_POP_ETH:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b5 (pop_eth)\n");
 			if (is_layer3)
 				return -EINVAL;
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b5--\n");
 			if (vlan_tci & htons(VLAN_TAG_PRESENT))
 				return -EINVAL;
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b5---\n");
 			is_layer3 = true;
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_ETH:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b6 (push_eth)\n");
 			/* For now disallow pushing an Ethernet header if one
 			 * is already present */
-			if (!is_layer3) {
-				printk(KERN_WARNING "__ovs_nla_copy_actions: push_eth, error because !layer3\n");
+			if (!is_layer3)
 				return -EINVAL;
-			}
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b6-\n");
 			is_layer3 = false;
 			break;
 
 		case OVS_ACTION_ATTR_POP_VLAN:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b7\n");
 			if (is_layer3)
 				return -EINVAL;
 			vlan_tci = htons(0);
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_VLAN:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b8\n");
 			if (is_layer3)
 				return -EINVAL;
 			vlan = nla_data(a);
@@ -2012,13 +1951,10 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			break;
 
 		case OVS_ACTION_ATTR_RECIRC:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b2 (recirc)\n");
 			break;
 
 		case OVS_ACTION_ATTR_PUSH_MPLS: {
 			const struct ovs_action_push_mpls *mpls = nla_data(a);
-
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b9 (push_mpls)\n");
 
 			if (!eth_p_mpls(mpls->mpls_ethertype))
 				return -EINVAL;
@@ -2026,7 +1962,6 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			/* Prohibit push MPLS other than to a white list
 			 * for packets that have a known tag order.
 			 */
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b9--\n");
 			if (vlan_tci & htons(VLAN_TAG_PRESENT) ||
 			    (eth_type != htons(ETH_P_IP) &&
 			     eth_type != htons(ETH_P_IPV6) &&
@@ -2034,18 +1969,15 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			     eth_type != htons(ETH_P_RARP) &&
 			     !eth_p_mpls(eth_type)))
 				return -EINVAL;
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b9---\n");
 			eth_type = mpls->mpls_ethertype;
 			break;
 		}
 
 		case OVS_ACTION_ATTR_POP_MPLS:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b10 (pop_mpls)\n");
 			if (vlan_tci & htons(VLAN_TAG_PRESENT) ||
 			    !eth_p_mpls(eth_type))
 				return -EINVAL;
 
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b10-\n");
 			/* Disallow subsequent L2.5+ set and mpls_pop actions
 			 * as there is no check here to ensure that the new
 			 * eth_type is valid and thus set actions could
@@ -2059,44 +1991,34 @@ static int __ovs_nla_copy_actions(const struct nlattr *attr,
 			break;
 
 		case OVS_ACTION_ATTR_SET:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b11 (set)\n");
 			err = validate_set(a, key, sfa, &skip_copy,
 					   eth_type, log, is_layer3);
 			if (err)
 				return err;
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b11-\n");
 			break;
 
 		case OVS_ACTION_ATTR_SAMPLE:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b2 (sample)\n");
 			err = validate_and_copy_sample(a, key, depth, sfa,
 						       eth_type, vlan_tci, log);
 			if (err)
 				return err;
-			printk(KERN_WARNING "__ovs_nla_copy_actions:b22 (sample)\n");
 			skip_copy = true;
 			break;
 
 		default:
-			printk(KERN_WARNING "__ovs_nla_copy_actions:default/unknown-\n");
 			OVS_NLERR(log, "Unknown Action type %d", type);
 			return -EINVAL;
 		}
 		if (!skip_copy) {
-			printk(KERN_WARNING "pre copy\n");
 			err = copy_action(a, sfa, log);
 			if (err)
 				return err;
-			printk(KERN_WARNING "after copy\n");
 		}
-		printk(KERN_WARNING "__ovs_nla_copy_actions:iter end\n");
 	}
 
-	printk(KERN_WARNING "__ovs_nla_copy_actions:pre-z\n");
 	if (rem > 0)
 		return -EINVAL;
 
-	printk(KERN_WARNING "__ovs_nla_copy_actions:z\n");
 	return 0;
 }
 

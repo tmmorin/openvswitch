@@ -273,7 +273,6 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 		struct dp_upcall_info upcall;
 		int error;
 
-		printk(KERN_WARNING "ovs_dp_process_packet: miss\n");
 		upcall.cmd = OVS_PACKET_CMD_MISS;
 		upcall.userdata = NULL;
 		upcall.portid = ovs_vport_find_upcall_portid(p, skb);
@@ -287,10 +286,8 @@ void ovs_dp_process_packet(struct sk_buff *skb, struct sw_flow_key *key)
 		goto out;
 	}
 
-	printk(KERN_WARNING "ovs_dp_process_packet: ovs_flow_stats_update\n");
 	ovs_flow_stats_update(flow, key->tp.flags, skb);
 	sf_acts = rcu_dereference(flow->sf_acts);
-	printk(KERN_WARNING "ovs_dp_process_packet: ovs_execute_actions\n");
 	ovs_execute_actions(dp, skb, sf_acts, key);
 
 	stats_counter = &stats->n_hit;
@@ -535,8 +532,6 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	int err;
 	bool log = !a[OVS_PACKET_ATTR_PROBE];
 
-	printk(KERN_WARNING "ovs_packet_cmd_execute:0\n");
-
 	err = -EINVAL;
 	if (!a[OVS_PACKET_ATTR_PACKET] || !a[OVS_PACKET_ATTR_KEY] ||
 	    !a[OVS_PACKET_ATTR_ACTIONS])
@@ -544,14 +539,12 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 
 	len = nla_len(a[OVS_PACKET_ATTR_PACKET]);
 	packet = __dev_alloc_skb(NET_IP_ALIGN + len, GFP_KERNEL);
-	printk(KERN_WARNING "ovs_packet_cmd_execute: post-Alloc packet->mac_len: %d\n",packet->mac_len);
 	err = -ENOMEM;
 	if (!packet)
 		goto err;
 	skb_reserve(packet, NET_IP_ALIGN);
 
 	nla_memcpy(__skb_put(packet, len), a[OVS_PACKET_ATTR_PACKET], len);
-	printk(KERN_WARNING "ovs_packet_cmd_execute: post-copy packet->mac_len: %d\n",packet->mac_len);
 
 	/* Build an sw_flow for sending this packet. */
 	flow = ovs_flow_alloc();
@@ -559,28 +552,21 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	if (IS_ERR(flow))
 		goto err_kfree_skb;
 
-	printk(KERN_WARNING "ovs_packet_cmd_execute:1\n");
 	err = ovs_flow_key_extract_userspace(a[OVS_PACKET_ATTR_KEY], packet,
 					     &flow->key, log);
-	printk(KERN_WARNING "ovs_packet_cmd_execute: post-ofke packet->mac_len: %d\n",packet->mac_len);
 	if (err)
 		goto err_flow_free;
 
 	err = ovs_nla_copy_actions(a[OVS_PACKET_ATTR_ACTIONS],
 				   &flow->key, &acts, log);
-	printk(KERN_WARNING "ovs_packet_cmd_execute: post-nlacopyactions packet->mac_len: %d\n",packet->mac_len);
-	if (err) {
-	        printk(KERN_WARNING "ovs_packet_cmd_execute: post-nlacopyactions: (err:%d)",err);
+	if (err)
 		goto err_flow_free;
-	}
 
 	rcu_assign_pointer(flow->sf_acts, acts);
 	OVS_CB(packet)->egress_tun_info = NULL;
 	packet->priority = flow->key.phy.priority;
 	packet->mark = flow->key.phy.skb_mark;
 	packet->protocol = flow->key.eth.type;
-	printk(KERN_WARNING "ovs_packet_cmd_execute: packet->protocol: %d\n",packet->protocol);
-	printk(KERN_WARNING "ovs_packet_cmd_execute: packet->mac_len: %d\n",packet->mac_len);
 
 	skb_reset_mac_len(packet);
 
@@ -601,7 +587,6 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	sf_acts = rcu_dereference(flow->sf_acts);
 
 	local_bh_disable();
-	printk(KERN_WARNING "ovs_packet_cmd_execute:3\n");
 	err = ovs_execute_actions(dp, packet, sf_acts, &flow->key);
 	local_bh_enable();
 	rcu_read_unlock();
@@ -871,8 +856,6 @@ static int ovs_flow_cmd_new(struct sk_buff *skb, struct genl_info *info)
 	int error;
 	bool log = !a[OVS_FLOW_ATTR_PROBE];
 
-	printk(KERN_WARNING "ovs_flow_cmd_new\n");
-
 	/* Must have key and actions. */
 	error = -EINVAL;
 	if (!a[OVS_FLOW_ATTR_KEY]) {
@@ -892,7 +875,6 @@ static int ovs_flow_cmd_new(struct sk_buff *skb, struct genl_info *info)
 		error = PTR_ERR(new_flow);
 		goto error;
 	}
-	printk(KERN_WARNING "ovs_flow_cmd_new:1\n");
 
 	/* Extract key. */
 	ovs_match_init(&match, &new_flow->unmasked_key, &mask);
@@ -901,21 +883,15 @@ static int ovs_flow_cmd_new(struct sk_buff *skb, struct genl_info *info)
 	if (error)
 		goto err_kfree_flow;
 
-	printk(KERN_WARNING "ovs_flow_cmd_new:2\n");
-	printk(KERN_WARNING "ovs_flow_cmd_new: before ovs_flow_mask_key\n");
-	printk(KERN_WARNING "ovs_flow_cmd_new: mask is before ovs_flow_mask_key\n");
 	ovs_flow_mask_key(&new_flow->key, &new_flow->unmasked_key, &mask);
 
-	printk(KERN_WARNING "ovs_flow_cmd_new:3\n");
 	/* Validate actions. */
 	error = ovs_nla_copy_actions(a[OVS_FLOW_ATTR_ACTIONS], &new_flow->key,
 				     &acts, log);
-	printk(KERN_WARNING "ovs_flow_cmd_new:4\n");
 	if (error) {
 		OVS_NLERR(log, "Flow actions may not be safe on all matching packets.");
 		goto err_kfree_flow;
 	}
-	printk(KERN_WARNING "ovs_flow_cmd_new:5\n");
 
 	reply = ovs_flow_cmd_alloc_info(acts, info, false);
 	if (IS_ERR(reply)) {
@@ -993,7 +969,6 @@ static int ovs_flow_cmd_new(struct sk_buff *skb, struct genl_info *info)
 
 	if (reply)
 		ovs_notify(&dp_flow_genl_family, &ovs_dp_flow_multicast_group, reply, info);
-	printk(KERN_WARNING "ovs_flow_cmd_new:return success\n");
 	return 0;
 
 err_unlock_ovs:
@@ -1004,7 +979,6 @@ err_kfree_acts:
 err_kfree_flow:
 	ovs_flow_free(new_flow, false);
 error:
-	printk(KERN_WARNING "ovs_flow_cmd_new:return error\n");
 	return error;
 }
 
