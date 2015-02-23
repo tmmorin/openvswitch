@@ -463,6 +463,9 @@ static int key_extract(struct sk_buff *skb, struct sw_flow_key *key)
 	/* Link layer. */
 	if (key->phy.is_layer3) {
 		key->eth.tci = 0;
+		/* this skb_reset_mac_header call is needed or skb_reset_mac_len 
+		below will not set mac_len to zero */
+		skb_reset_mac_header(skb);
 	} else {
 		eth = eth_hdr(skb);
 		ether_addr_copy(key->eth.src, eth->h_source);

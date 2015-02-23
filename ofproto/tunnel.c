@@ -658,6 +658,10 @@ tnl_port_fmt(const struct tnl_port *tnl_port) OVS_REQ_RDLOCK(rwlock)
         ds_put_cstr(&ds, ", csum=true");
     }
 
+    if (cfg->l3port) {
+        ds_put_cstr(&ds, ", l3port=true");
+    }
+
     ds_put_cstr(&ds, ")\n");
 
     return ds_steal_cstr(&ds);
