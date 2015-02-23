@@ -1,4 +1,4 @@
-/* Copyright (c) 2008, 2009, 2010, 2011, 2012, 2013, 2014 Nicira, Inc.
+/* Copyright (c) 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1896,9 +1896,12 @@ bridge_configure_mcast_snooping(struct bridge *br)
         }
 
         HMAP_FOR_EACH (port, hmap_node, &br->ports) {
-            bool flood = smap_get_bool(&port->cfg->other_config,
+            struct ofproto_mcast_snooping_port_settings port_s;
+            port_s.flood = smap_get_bool(&port->cfg->other_config,
                                        "mcast-snooping-flood", false);
-            if (ofproto_port_set_mcast_snooping(br->ofproto, port, flood)) {
+            port_s.flood_reports = smap_get_bool(&port->cfg->other_config,
+                                       "mcast-snooping-flood-reports", false);
+            if (ofproto_port_set_mcast_snooping(br->ofproto, port, &port_s)) {
                 VLOG_ERR("port %s: could not configure mcast snooping",
                          port->name);
             }
@@ -2259,7 +2262,7 @@ iface_refresh_cfm_stats(struct iface *iface)
                 reasons[j++] = cfm_fault_reason_to_str(reason);
             }
         }
-        ovsrec_interface_set_cfm_fault_status(cfg, (char **) reasons, j);
+        ovsrec_interface_set_cfm_fault_status(cfg, reasons, j);
 
         ovsrec_interface_set_cfm_flap_count(cfg, &cfm_flap_count, 1);
 
@@ -2304,7 +2307,7 @@ iface_refresh_stats(struct iface *iface)
     enum { N_IFACE_STATS = IFACE_STATS };
 #undef IFACE_STAT
     int64_t values[N_IFACE_STATS];
-    char *keys[N_IFACE_STATS];
+    const char *keys[N_IFACE_STATS];
     int n;
 
     struct netdev_stats stats;
@@ -2416,7 +2419,7 @@ port_refresh_stp_stats(struct port *port)
     struct ofproto *ofproto = port->bridge->ofproto;
     struct iface *iface;
     struct ofproto_port_stp_stats stats;
-    char *keys[3];
+    const char *keys[3];
     int64_t int_values[3];
 
     if (port_is_synthetic(port)) {
@@ -2486,8 +2489,8 @@ port_refresh_rstp_status(struct port *port)
     struct ofproto *ofproto = port->bridge->ofproto;
     struct iface *iface;
     struct ofproto_port_rstp_status status;
-    char *keys[3];
-    int64_t int_values[3];
+    const char *keys[4];
+    int64_t int_values[4];
     struct smap smap;
 
     if (port_is_synthetic(port)) {
@@ -2536,6 +2539,8 @@ port_refresh_rstp_status(struct port *port)
     int_values[1] = status.rx_count;
     keys[2] = "rstp_uptime";
     int_values[2] = status.uptime;
+    keys[3] = "rstp_error_count";
+    int_values[3] = status.error_count;
     ovsrec_port_set_rstp_statistics(port->cfg, keys, int_values,
             ARRAY_SIZE(int_values));
 }
@@ -4725,7 +4730,7 @@ mirror_refresh_stats(struct mirror *m)
 {
     struct ofproto *ofproto = m->bridge->ofproto;
     uint64_t tx_packets, tx_bytes;
-    char *keys[2];
+    const char *keys[2];
     int64_t values[2];
     size_t stat_cnt = 0;
 

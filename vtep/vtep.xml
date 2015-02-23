@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<database title="Hardware VTEP Database">
+<database name="vtep" title="Hardware VTEP Database">
   <p>
     This schema specifies relations that a VTEP can use to integrate
     physical ports into logical switches maintained by a network
@@ -776,6 +776,10 @@
       addresses of the appropriate VTEP(s).
     </column>
 
+    <column name="ipaddr">
+      The IP address to which this MAC corresponds. Optional field for
+      the purpose of ARP supression.
+    </column>
   </table>
 
   <table name="Mcast_Macs_Remote" title="Multicast MACs (remote)">

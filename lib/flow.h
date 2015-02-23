@@ -196,6 +196,8 @@ struct flow_metadata {
     ovs_be64 tun_id;                 /* Encapsulating tunnel ID. */
     ovs_be32 tun_src;                /* Tunnel outer IPv4 src addr */
     ovs_be32 tun_dst;                /* Tunnel outer IPv4 dst addr */
+    ovs_be16 gbp_id;                 /* Group policy ID */
+    uint8_t  gbp_flags;              /* Group policy flags */
     ovs_be64 metadata;               /* OpenFlow 1.1+ metadata field. */
     uint32_t regs[FLOW_N_REGS];      /* Registers. */
     uint32_t pkt_mark;               /* Packet mark. */

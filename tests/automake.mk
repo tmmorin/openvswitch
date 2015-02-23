@@ -6,7 +6,8 @@ EXTRA_DIST += \
 	$(KMOD_TESTSUITE) \
 	tests/atlocal.in \
 	$(srcdir)/package.m4 \
-	$(srcdir)/tests/testsuite
+	$(srcdir)/tests/testsuite \
+	$(srcdir)/tests/testsuite.patch
 
 COMMON_MACROS_AT = \
 	tests/ovsdb-macros.at \
@@ -15,6 +16,7 @@ COMMON_MACROS_AT = \
 
 TESTSUITE_AT = \
 	tests/testsuite.at \
+	tests/completion.at \
 	tests/library.at \
 	tests/heap.at \
 	tests/bundle.at \
@@ -86,6 +88,7 @@ KMOD_TESTSUITE_AT = \
 	tests/kmod-traffic.at
 
 TESTSUITE = $(srcdir)/tests/testsuite
+TESTSUITE_PATCH = $(srcdir)/tests/testsuite.patch
 KMOD_TESTSUITE = $(srcdir)/tests/kmod-testsuite
 DISTCLEANFILES += tests/atconfig tests/atlocal
 
@@ -188,15 +191,16 @@ check-kernel: all tests/atconfig tests/atlocal $(KMOD_TESTSUITE)
 # Testing the out of tree Kernel module
 check-kmod: all tests/atconfig tests/atlocal $(KMOD_TESTSUITE)
 	$(MAKE) modules_install
-	rmmod openvswitch
+	modprobe -r openvswitch
 	$(MAKE) check-kernel
 
 clean-local:
 	test ! -f '$(TESTSUITE)' || $(SHELL) '$(TESTSUITE)' -C tests --clean
 
 AUTOTEST = $(AUTOM4TE) --language=autotest
-$(TESTSUITE): package.m4 $(TESTSUITE_AT) $(COMMON_MACROS_AT)
+$(TESTSUITE): package.m4 $(TESTSUITE_AT) $(COMMON_MACROS_AT) $(TESTSUITE_PATCH)
 	$(AM_V_GEN)$(AUTOTEST) -I '$(srcdir)' -o $@.tmp $@.at
+	patch -p0 $@.tmp $(TESTSUITE_PATCH)
 	$(AM_V_at)mv $@.tmp $@
 
 $(KMOD_TESTSUITE): package.m4 $(KMOD_TESTSUITE_AT) $(COMMON_MACROS_AT)

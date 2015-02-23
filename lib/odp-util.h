@@ -115,6 +115,7 @@ void odp_portno_names_destroy(struct hmap *portno_names);
  *  - OVS_TUNNEL_KEY_ATTR_CSUM           0    --     4      4
  *  - OVS_TUNNEL_KEY_ATTR_OAM            0    --     4      4
  *  - OVS_TUNNEL_KEY_ATTR_GENEVE_OPTS    256  --     4      260
+ *  - OVS_TUNNEL_KEY_ATTR_VXLAN_OPTS     -    --     -      - (shared with _GENEVE_OPTS)
  *  OVS_KEY_ATTR_IN_PORT                 4    --     4      8
  *  OVS_KEY_ATTR_SKB_MARK                4    --     4      8
  *  OVS_KEY_ATTR_DP_HASH                 4    --     4      8

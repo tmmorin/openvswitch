@@ -134,10 +134,10 @@ AC_DEFUN([OVS_CHECK_LINUX], [
     AC_MSG_RESULT([$kversion])
 
     if test "$version" -ge 3; then
-       if test "$version" = 3 && test "$patchlevel" -le 18; then
+       if test "$version" = 3 && test "$patchlevel" -le 19; then
           : # Linux 3.x
        else
-         AC_ERROR([Linux kernel in $KBUILD is version $kversion, but version newer than 3.18.x is not supported (please refer to the FAQ for advice)])
+         AC_ERROR([Linux kernel in $KBUILD is version $kversion, but version newer than 3.19.x is not supported (please refer to the FAQ for advice)])
        fi
     else
        if test "$version" -le 1 || test "$patchlevel" -le 5 || test "$sublevel" -le 31; then
@@ -362,6 +362,8 @@ AC_DEFUN([OVS_CHECK_LINUX_COMPAT], [
   OVS_GREP_IFELSE([$KSRC/include/net/genetlink.h], [mcgrp_offset])
   OVS_GREP_IFELSE([$KSRC/include/net/genetlink.h], [parallel_ops])
   OVS_GREP_IFELSE([$KSRC/include/net/genetlink.h], [genlmsg_new_unicast])
+  OVS_GREP_IFELSE([$KSRC/include/net/genetlink.h], [netlink_has_listeners(net->genl_sock],
+                  [OVS_DEFINE([HAVE_GENL_HAS_LISTENERS_TAKES_NET])])
   OVS_GREP_IFELSE([$KSRC/include/net/gre.h], [gre_cisco_register])
   OVS_GREP_IFELSE([$KSRC/include/net/gre.h], [gre_handle_offloads])
   OVS_GREP_IFELSE([$KSRC/include/net/ip_tunnels.h], [iptunnel_xmit.*net],
@@ -387,8 +389,8 @@ AC_DEFUN([OVS_CHECK_LINUX_COMPAT], [
   OVS_GREP_IFELSE([$KSRC/include/linux/openvswitch.h], [openvswitch_handle_frame_hook],
                   [OVS_DEFINE([HAVE_RHEL_OVS_HOOK])])
   OVS_GREP_IFELSE([$KSRC/include/net/vxlan.h], [vxlan_xmit_skb])
-  OVS_GREP_IFELSE([$KSRC/include/net/vxlan.h], [bool xnet],
-                  [OVS_DEFINE([HAVE_VXLAN_XMIT_SKB_XNET_ARG])])
+  OVS_GREP_IFELSE([$KSRC/include/net/vxlan.h], [struct vxlan_metadata],
+                  [OVS_DEFINE([HAVE_VXLAN_METADATA])])
   OVS_GREP_IFELSE([$KSRC/include/net/udp.h], [udp_flow_src_port],
                   [OVS_DEFINE([HAVE_UDP_FLOW_SRC_PORT])])
   OVS_GREP_IFELSE([$KSRC/include/linux/skbuff.h], [ignore_df:1],

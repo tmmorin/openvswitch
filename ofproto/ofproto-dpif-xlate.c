@@ -197,6 +197,7 @@ struct xlate_ctx {
     int recurse;                /* Current resubmit nesting depth. */
     int resubmits;              /* Total number of resubmits. */
     bool in_group;              /* Currently translating ofgroup, if true. */
+    bool in_action_set;         /* Currently translating action_set, if true. */
 
     uint32_t orig_skb_priority; /* Priority when packet arrived. */
     uint8_t table_id;           /* OpenFlow table ID where flow was found. */
@@ -1804,9 +1805,10 @@ is_admissible(struct xlate_ctx *ctx, struct xport *in_port,
         case BV_DROP_IF_MOVED:
             ovs_rwlock_rdlock(&xbridge->ml->rwlock);
             mac = mac_learning_lookup(xbridge->ml, flow->dl_src, vlan);
-            if (mac && mac->port.p != in_xbundle->ofbundle &&
-                (!is_gratuitous_arp(flow, &ctx->xout->wc)
-                 || mac_entry_is_grat_arp_locked(mac))) {
+            if (mac
+                && mac_entry_get_port(xbridge->ml, mac) != in_xbundle->ofbundle
+                && (!is_gratuitous_arp(flow, &ctx->xout->wc)
+                    || mac_entry_is_grat_arp_locked(mac))) {
                 ovs_rwlock_unlock(&xbridge->ml->rwlock);
                 xlate_report(ctx, "SLB bond thinks this packet looped back, "
                              "dropping");
@@ -1858,7 +1860,7 @@ OVS_REQ_RDLOCK(ml->rwlock)
         }
     }
 
-    return mac->port.p != in_xbundle->ofbundle;
+    return mac_entry_get_port(ml, mac) != in_xbundle->ofbundle;
 }
 
 
@@ -1894,7 +1896,7 @@ OVS_REQ_WRLOCK(xbridge->ml->rwlock)
         }
     }
 
-    if (mac->port.p != in_xbundle->ofbundle) {
+    if (mac_entry_get_port(xbridge->ml, mac) != in_xbundle->ofbundle) {
         /* The log messages here could actually be useful in debugging,
          * so keep the rate limit relatively high. */
         static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(30, 300);
@@ -1904,8 +1906,7 @@ OVS_REQ_WRLOCK(xbridge->ml->rwlock)
                     xbridge->name, ETH_ADDR_ARGS(flow->dl_src),
                     in_xbundle->name, vlan);
 
-        mac->port.p = in_xbundle->ofbundle;
-        mac_learning_changed(xbridge->ml);
+        mac_entry_set_port(xbridge->ml, mac, in_xbundle->ofbundle);
     }
 }
 
@@ -1985,7 +1986,7 @@ update_mcast_snooping_table(const struct xbridge *xbridge,
     struct mcast_snooping *ms = xbridge->ms;
     struct xlate_cfg *xcfg;
     struct xbundle *mcast_xbundle;
-    struct mcast_fport_bundle *fport;
+    struct mcast_port_bundle *fport;
 
     /* Don't learn the OFPP_NONE port. */
     if (in_xbundle == &ofpp_none_bundle) {
@@ -1996,7 +1997,7 @@ update_mcast_snooping_table(const struct xbridge *xbridge,
     mcast_xbundle = NULL;
     ovs_rwlock_wrlock(&ms->rwlock);
     xcfg = ovsrcu_get(struct xlate_cfg *, &xcfgp);
-    LIST_FOR_EACH(fport, fport_node, &ms->fport_list) {
+    LIST_FOR_EACH(fport, node, &ms->fport_list) {
         mcast_xbundle = xbundle_lookup(xcfg, fport->port);
         if (mcast_xbundle == in_xbundle) {
             break;
@@ -2069,11 +2070,11 @@ xlate_normal_mcast_send_fports(struct xlate_ctx *ctx,
     OVS_REQ_RDLOCK(ms->rwlock)
 {
     struct xlate_cfg *xcfg;
-    struct mcast_fport_bundle *fport;
+    struct mcast_port_bundle *fport;
     struct xbundle *mcast_xbundle;
 
     xcfg = ovsrcu_get(struct xlate_cfg *, &xcfgp);
-    LIST_FOR_EACH(fport, fport_node, &ms->fport_list) {
+    LIST_FOR_EACH(fport, node, &ms->fport_list) {
         mcast_xbundle = xbundle_lookup(xcfg, fport->port);
         if (mcast_xbundle && mcast_xbundle != in_xbundle) {
             xlate_report(ctx, "forwarding to mcast flood port");
@@ -2082,6 +2083,31 @@ xlate_normal_mcast_send_fports(struct xlate_ctx *ctx,
             xlate_report(ctx, "mcast flood port is unknown, dropping");
         } else {
             xlate_report(ctx, "mcast flood port is input port, dropping");
+        }
+    }
+}
+
+/* forward the Reports to configured ports */
+static void
+xlate_normal_mcast_send_rports(struct xlate_ctx *ctx,
+                               struct mcast_snooping *ms,
+                               struct xbundle *in_xbundle, uint16_t vlan)
+    OVS_REQ_RDLOCK(ms->rwlock)
+{
+    struct xlate_cfg *xcfg;
+    struct mcast_port_bundle *rport;
+    struct xbundle *mcast_xbundle;
+
+    xcfg = ovsrcu_get(struct xlate_cfg *, &xcfgp);
+    LIST_FOR_EACH(rport, node, &ms->rport_list) {
+        mcast_xbundle = xbundle_lookup(xcfg, rport->port);
+        if (mcast_xbundle && mcast_xbundle != in_xbundle) {
+            xlate_report(ctx, "forwarding Report to mcast flagged port");
+            output_normal(ctx, mcast_xbundle, vlan);
+        } else if (!mcast_xbundle) {
+            xlate_report(ctx, "mcast port is unknown, dropping the Report");
+        } else {
+            xlate_report(ctx, "mcast port is input port, dropping the Report");
         }
     }
 }
@@ -2200,6 +2226,15 @@ xlate_normal(struct xlate_ctx *ctx)
             if (mcast_snooping_is_membership(flow->tp_src)) {
                 ovs_rwlock_rdlock(&ms->rwlock);
                 xlate_normal_mcast_send_mrouters(ctx, ms, in_xbundle, vlan);
+                /* RFC4541: section 2.1.1, item 1: A snooping switch should
+                 * forward IGMP Membership Reports only to those ports where
+                 * multicast routers are attached.  Alternatively stated: a
+                 * snooping switch should not forward IGMP Membership Reports
+                 * to ports on which only hosts are attached.
+                 * An administrative control may be provided to override this
+                 * restriction, allowing the report messages to be flooded to
+                 * other ports. */
+                xlate_normal_mcast_send_rports(ctx, ms, in_xbundle, vlan);
                 ovs_rwlock_unlock(&ms->rwlock);
             } else {
                 xlate_report(ctx, "multicast traffic, flooding");
@@ -2237,7 +2272,7 @@ xlate_normal(struct xlate_ctx *ctx)
     } else {
         ovs_rwlock_rdlock(&ctx->xbridge->ml->rwlock);
         mac = mac_learning_lookup(ctx->xbridge->ml, flow->dl_dst, vlan);
-        mac_port = mac ? mac->port.p : NULL;
+        mac_port = mac ? mac_entry_get_port(ctx->xbridge->ml, mac) : NULL;
         ovs_rwlock_unlock(&ctx->xbridge->ml->rwlock);
 
         if (mac_port) {
@@ -3448,7 +3483,10 @@ xlate_output_action(struct xlate_ctx *ctx,
         break;
     case OFPP_CONTROLLER:
         execute_controller_action(ctx, max_len,
-                                  ctx->in_group ? OFPR_GROUP : OFPR_ACTION, 0);
+                                  (ctx->in_group ? OFPR_GROUP
+                                   : ctx->in_action_set ? OFPR_ACTION_SET
+                                   : OFPR_ACTION),
+                                  0);
         break;
     case OFPP_NONE:
         break;
@@ -3730,9 +3768,11 @@ xlate_action_set(struct xlate_ctx *ctx)
     uint64_t action_list_stub[1024 / 64];
     struct ofpbuf action_list;
 
+    ctx->in_action_set = true;
     ofpbuf_use_stub(&action_list, action_list_stub, sizeof action_list_stub);
     ofpacts_execute_action_set(&action_list, &ctx->action_set);
     do_xlate_actions(ofpbuf_data(&action_list), ofpbuf_size(&action_list), ctx);
+    ctx->in_action_set = false;
     ofpbuf_uninit(&action_list);
 }
 
@@ -4417,6 +4457,7 @@ xlate_actions(struct xlate_in *xin, struct xlate_out *xout)
     ctx.recurse = 0;
     ctx.resubmits = 0;
     ctx.in_group = false;
+    ctx.in_action_set = false;
     ctx.orig_skb_priority = flow->skb_priority;
     ctx.table_id = 0;
     ctx.exit = false;

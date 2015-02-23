@@ -65,6 +65,7 @@ PYCOV_CLEAN_FILES = build-aux/check-structs,cover
 # A list of Markdown-formatted documentation that will automatically be
 # included in the "make dist-docs" output.
 docs = \
+	appveyor.yml \
 	CONTRIBUTING.md \
 	CodingStyle.md \
 	DESIGN.md \
@@ -103,6 +104,7 @@ EXTRA_DIST = \
 	build-aux/dist-docs \
 	build-aux/sodepends.pl \
 	build-aux/soexpand.pl \
+	build-aux/xml2nroff \
 	$(MAN_FRAGMENTS) \
 	$(MAN_ROOTS) \
 	Vagrantfile
@@ -134,6 +136,7 @@ scripts_SCRIPTS =
 scripts_DATA =
 SUFFIXES =
 check_DATA =
+check_SCRIPTS =
 pkgconfig_DATA =
 
 scriptsdir = $(pkgdatadir)/scripts

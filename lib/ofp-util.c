@@ -3298,6 +3298,8 @@ ofputil_decode_packet_in_finish(struct ofputil_packet_in *pin,
     pin->fmd.tun_id = match->flow.tunnel.tun_id;
     pin->fmd.tun_src = match->flow.tunnel.ip_src;
     pin->fmd.tun_dst = match->flow.tunnel.ip_dst;
+    pin->fmd.gbp_id = match->flow.tunnel.gbp_id;
+    pin->fmd.gbp_flags = match->flow.tunnel.gbp_flags;
     pin->fmd.metadata = match->flow.metadata;
     memcpy(pin->fmd.regs, match->flow.regs, sizeof pin->fmd.regs);
     pin->fmd.pkt_mark = match->flow.pkt_mark;
@@ -3422,6 +3424,12 @@ ofputil_packet_in_to_match(const struct ofputil_packet_in *pin,
     }
     if (pin->fmd.tun_dst != htonl(0)) {
         match_set_tun_dst(match, pin->fmd.tun_dst);
+    }
+    if (pin->fmd.gbp_id != htons(0)) {
+        match_set_tun_gbp_id(match, pin->fmd.gbp_id);
+    }
+    if (pin->fmd.gbp_flags) {
+        match_set_tun_gbp_flags(match, pin->fmd.gbp_flags);
     }
     if (pin->fmd.metadata != htonll(0)) {
         match_set_metadata(match, pin->fmd.metadata);
@@ -7408,7 +7416,7 @@ ofputil_put_ofp15_bucket(const struct ofputil_bucket *bucket,
 
 static void
 ofputil_append_ofp11_group_desc_reply(const struct ofputil_group_desc *gds,
-                                      struct ovs_list *buckets,
+                                      const struct ovs_list *buckets,
                                       struct ovs_list *replies,
                                       enum ofp_version version)
 {
@@ -7432,7 +7440,7 @@ ofputil_append_ofp11_group_desc_reply(const struct ofputil_group_desc *gds,
 
 static void
 ofputil_append_ofp15_group_desc_reply(const struct ofputil_group_desc *gds,
-                                      struct ovs_list *buckets,
+                                      const struct ovs_list *buckets,
                                       struct ovs_list *replies,
                                       enum ofp_version version)
 {
@@ -7462,7 +7470,7 @@ ofputil_append_ofp15_group_desc_reply(const struct ofputil_group_desc *gds,
  * initialized with ofpmp_init(). */
 void
 ofputil_append_group_desc_reply(const struct ofputil_group_desc *gds,
-                                struct ovs_list *buckets,
+                                const struct ovs_list *buckets,
                                 struct ovs_list *replies)
 {
     enum ofp_version version = ofpmp_version(replies);
@@ -7992,6 +8000,7 @@ ofputil_pull_ofp11_group_mod(struct ofpbuf *msg, enum ofp_version ofp_version,
                              struct ofputil_group_mod *gm)
 {
     const struct ofp11_group_mod *ogm;
+    enum ofperr error;
 
     ogm = ofpbuf_pull(msg, sizeof *ogm);
     gm->command = ntohs(ogm->command);
@@ -7999,8 +8008,18 @@ ofputil_pull_ofp11_group_mod(struct ofpbuf *msg, enum ofp_version ofp_version,
     gm->group_id = ntohl(ogm->group_id);
     gm->command_bucket_id = OFPG15_BUCKET_ALL;
 
-    return ofputil_pull_ofp11_buckets(msg, ofpbuf_size(msg), ofp_version,
-                                      &gm->buckets);
+    error = ofputil_pull_ofp11_buckets(msg, ofpbuf_size(msg), ofp_version,
+                                       &gm->buckets);
+
+    /* OF1.3.5+ prescribes an error when an OFPGC_DELETE includes buckets. */
+    if (!error
+        && ofp_version >= OFP13_VERSION
+        && gm->command == OFPGC11_DELETE
+        && !list_is_empty(&gm->buckets)) {
+        error = OFPERR_OFPGMFC_INVALID_GROUP;
+    }
+
+    return error;
 }
 
 static enum ofperr

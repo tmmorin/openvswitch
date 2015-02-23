@@ -85,8 +85,7 @@ static bool ovs_must_notify(struct genl_family *family, struct genl_info *info,
 			    unsigned int group)
 {
 	return info->nlhdr->nlmsg_flags & NLM_F_ECHO ||
-	       genl_has_listeners(family, genl_info_net(info)->genl_sock,
-				  group);
+	       genl_has_listeners(family, genl_info_net(info), group);
 }
 
 static void ovs_notify(struct genl_family *family, struct genl_multicast_group *grp,
@@ -423,12 +422,12 @@ static int queue_userspace_packet(struct datapath *dp, struct sk_buff *skb,
 	if (!dp_ifindex)
 		return -ENODEV;
 
-	if (vlan_tx_tag_present(skb)) {
+	if (skb_vlan_tag_present(skb)) {
 		nskb = skb_clone(skb, GFP_ATOMIC);
 		if (!nskb)
 			return -ENOMEM;
 
-		nskb = vlan_insert_tag_set_proto(nskb, nskb->vlan_proto, vlan_tx_tag_get(nskb));
+		nskb = vlan_insert_tag_set_proto(nskb, nskb->vlan_proto, skb_vlan_tag_get(nskb));
 		if (!nskb)
 			return -ENOMEM;
 
@@ -797,7 +796,8 @@ static int ovs_flow_cmd_fill_info(const struct sw_flow *flow, int dp_ifindex,
 	if (err)
 		goto error;
 
-	return genlmsg_end(skb, ovs_header);
+	genlmsg_end(skb, ovs_header);
+	return 0;
 
 error:
 	genlmsg_cancel(skb, ovs_header);
@@ -1350,7 +1350,8 @@ static int ovs_dp_cmd_fill_info(struct datapath *dp, struct sk_buff *skb,
 	if (nla_put_u32(skb, OVS_DP_ATTR_USER_FEATURES, dp->user_features))
 		goto nla_put_failure;
 
-	return genlmsg_end(skb, ovs_header);
+	genlmsg_end(skb, ovs_header);
+	return 0;
 
 nla_put_failure:
 	genlmsg_cancel(skb, ovs_header);
@@ -1720,7 +1721,8 @@ static int ovs_vport_cmd_fill_info(struct vport *vport, struct sk_buff *skb,
 	if (err == -EMSGSIZE)
 		goto error;
 
-	return genlmsg_end(skb, ovs_header);
+	genlmsg_end(skb, ovs_header);
+	return 0;
 
 nla_put_failure:
 	err = -EMSGSIZE;

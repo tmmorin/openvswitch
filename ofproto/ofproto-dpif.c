@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2010, 2011, 2012, 2013, 2014 Nicira, Inc.
+ * Copyright (c) 2009, 2010, 2011, 2012, 2013, 2014, 2015 Nicira, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1273,6 +1273,9 @@ construct(struct ofproto *ofproto_)
     struct shash_node *node, *next;
     int error;
 
+    /* Tunnel module can get used right after the udpif threads are running. */
+    ofproto_tunnel_init();
+
     error = open_dpif_backer(ofproto->up.type, &ofproto->backer);
     if (error) {
         return error;
@@ -1290,7 +1293,6 @@ construct(struct ofproto *ofproto_)
     ofproto->mbridge = mbridge_create();
     ofproto->has_bonded_bundles = false;
     ofproto->lacp_enabled = false;
-    ofproto_tunnel_init();
     ovs_mutex_init_adaptive(&ofproto->stats_mutex);
     ovs_mutex_init(&ofproto->vsp_mutex);
 
@@ -1720,10 +1722,10 @@ port_construct(struct ofport *port_)
 
     if (netdev_vport_is_patch(netdev)) {
         /* By bailing out here, we don't submit the port to the sFlow module
-	 * to be considered for counter polling export.  This is correct
-	 * because the patch port represents an interface that sFlow considers
-	 * to be "internal" to the switch as a whole, and therefore not an
-	 * candidate for counter polling. */
+         * to be considered for counter polling export.  This is correct
+         * because the patch port represents an interface that sFlow considers
+         * to be "internal" to the switch as a whole, and therefore not a
+         * candidate for counter polling. */
         port->odp_port = ODPP_NONE;
         ofport_update_peer(port);
         return 0;
@@ -1895,6 +1897,7 @@ set_sflow(struct ofproto *ofproto_,
     struct dpif_sflow *ds = ofproto->sflow;
 
     if (sflow_options) {
+        uint32_t old_probability = ds ? dpif_sflow_get_probability(ds) : 0;
         if (!ds) {
             struct ofport_dpif *ofport;
 
@@ -1902,9 +1905,11 @@ set_sflow(struct ofproto *ofproto_,
             HMAP_FOR_EACH (ofport, up.hmap_node, &ofproto->up.ports) {
                 dpif_sflow_add_port(ds, &ofport->up, ofport->odp_port);
             }
-            ofproto->backer->need_revalidate = REV_RECONFIGURE;
         }
         dpif_sflow_set_options(ds, sflow_options);
+        if (dpif_sflow_get_probability(ds) != old_probability) {
+            ofproto->backer->need_revalidate = REV_RECONFIGURE;
+        }
     } else {
         if (ds) {
             dpif_sflow_unref(ds);
@@ -2560,7 +2565,7 @@ bundle_flush_macs(struct ofbundle *bundle, bool all_ofprotos)
     ofproto->backer->need_revalidate = REV_RECONFIGURE;
     ovs_rwlock_wrlock(&ml->rwlock);
     LIST_FOR_EACH_SAFE (mac, next_mac, lru_node, &ml->lrus) {
-        if (mac->port.p == bundle) {
+        if (mac_entry_get_port(ml, mac) == bundle) {
             if (all_ofprotos) {
                 struct ofproto_dpif *o;
 
@@ -2596,8 +2601,8 @@ bundle_move(struct ofbundle *old, struct ofbundle *new)
     ofproto->backer->need_revalidate = REV_RECONFIGURE;
     ovs_rwlock_wrlock(&ml->rwlock);
     LIST_FOR_EACH_SAFE (mac, next_mac, lru_node, &ml->lrus) {
-        if (mac->port.p == old) {
-            mac->port.p = new;
+        if (mac_entry_get_port(ml, mac) == old) {
+            mac_entry_set_port(ml, mac, new);
         }
     }
     ovs_rwlock_unlock(&ml->rwlock);
@@ -2956,7 +2961,7 @@ bundle_send_learning_packets(struct ofbundle *bundle)
     list_init(&packets);
     ovs_rwlock_rdlock(&ofproto->ml->rwlock);
     LIST_FOR_EACH (e, lru_node, &ofproto->ml->lrus) {
-        if (e->port.p != bundle) {
+        if (mac_entry_get_port(ofproto->ml, e) != bundle) {
             void *port_void;
 
             learning_packet = bond_compose_learning_packet(bundle->bond,
@@ -3145,17 +3150,19 @@ set_mcast_snooping(struct ofproto *ofproto_,
     return 0;
 }
 
-/* Configures multicast snooping port's flood setting on 'ofproto'. */
+/* Configures multicast snooping port's flood settings on 'ofproto'. */
 static int
-set_mcast_snooping_port(struct ofproto *ofproto_, void *aux, bool flood)
+set_mcast_snooping_port(struct ofproto *ofproto_, void *aux,
+                        const struct ofproto_mcast_snooping_port_settings *s)
 {
     struct ofproto_dpif *ofproto = ofproto_dpif_cast(ofproto_);
     struct ofbundle *bundle = bundle_lookup(ofproto, aux);
 
-    if (ofproto->ms) {
+    if (ofproto->ms && s) {
         ovs_rwlock_wrlock(&ofproto->ms->rwlock);
-        mcast_snooping_set_port_flood(ofproto->ms, bundle->vlan, bundle,
-                                      flood);
+        mcast_snooping_set_port_flood(ofproto->ms, bundle, s->flood);
+        mcast_snooping_set_port_flood_reports(ofproto->ms, bundle,
+                                              s->flood_reports);
         ovs_rwlock_unlock(&ofproto->ms->rwlock);
     }
     return 0;
@@ -4346,7 +4353,7 @@ ofproto_unixctl_fdb_show(struct unixctl_conn *conn, int argc OVS_UNUSED,
     ds_put_cstr(&ds, " port  VLAN  MAC                Age\n");
     ovs_rwlock_rdlock(&ofproto->ml->rwlock);
     LIST_FOR_EACH (e, lru_node, &ofproto->ml->lrus) {
-        struct ofbundle *bundle = e->port.p;
+        struct ofbundle *bundle = mac_entry_get_port(ofproto->ml, e);
         char name[OFP_MAX_PORT_NAME_LEN];
 
         ofputil_port_to_string(ofbundle_get_a_port(bundle)->up.ofp_port,

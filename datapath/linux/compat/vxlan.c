@@ -18,6 +18,8 @@
  * This code is derived from kernel vxlan module.
  */
 
+#ifndef USE_UPSTREAM_VXLAN
+
 #include <linux/version.h>
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -58,35 +60,36 @@
 #include "datapath.h"
 #include "gso.h"
 #include "vlan.h"
-#ifndef USE_KERNEL_TUNNEL_API
 
-#define VXLAN_HLEN (sizeof(struct udphdr) + sizeof(struct vxlanhdr))
-
-#define VXLAN_FLAGS 0x08000000	/* struct vxlanhdr.vx_flags required value. */
-
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,18,0)
 /* VXLAN protocol header */
 struct vxlanhdr {
 	__be32 vx_flags;
 	__be32 vx_vni;
 };
+#endif
 
 /* Callback from net/ipv4/udp.c to receive packets */
 static int vxlan_udp_encap_recv(struct sock *sk, struct sk_buff *skb)
 {
 	struct vxlan_sock *vs;
 	struct vxlanhdr *vxh;
+	u32 flags, vni;
+	struct vxlan_metadata md = {0};
 
 	/* Need Vxlan and inner Ethernet header to be present */
 	if (!pskb_may_pull(skb, VXLAN_HLEN))
 		goto error;
 
-	/* Return packets with reserved bits set */
 	vxh = (struct vxlanhdr *)(udp_hdr(skb) + 1);
-	if (vxh->vx_flags != htonl(VXLAN_FLAGS) ||
-	    (vxh->vx_vni & htonl(0xff))) {
-		pr_warn("invalid vxlan flags=%#x vni=%#x\n",
-			ntohl(vxh->vx_flags), ntohl(vxh->vx_vni));
-		goto error;
+	flags = ntohl(vxh->vx_flags);
+	vni = ntohl(vxh->vx_vni);
+
+	if (flags & VXLAN_HF_VNI) {
+		flags &= ~VXLAN_HF_VNI;
+	} else {
+		/* VNI flag always required to be set */
+		goto bad_flags;
 	}
 
 	if (iptunnel_pull_header(skb, VXLAN_HLEN, htons(ETH_P_TEB)))
@@ -96,13 +99,48 @@ static int vxlan_udp_encap_recv(struct sock *sk, struct sk_buff *skb)
 	if (!vs)
 		goto drop;
 
-	vs->rcv(vs, skb, vxh->vx_vni);
+	/* For backwards compatibility, only allow reserved fields to be
+	* used by VXLAN extensions if explicitly requested.
+	*/
+	if ((flags & VXLAN_HF_GBP) && (vs->flags & VXLAN_F_GBP)) {
+		struct vxlanhdr_gbp *gbp;
+
+		gbp = (struct vxlanhdr_gbp *)vxh;
+		md.gbp = ntohs(gbp->policy_id);
+
+		if (gbp->dont_learn)
+			md.gbp |= VXLAN_GBP_DONT_LEARN;
+
+		if (gbp->policy_applied)
+			md.gbp |= VXLAN_GBP_POLICY_APPLIED;
+
+		flags &= ~VXLAN_GBP_USED_BITS;
+	}
+
+	if (flags || (vni & 0xff)) {
+		/* If there are any unprocessed flags remaining treat
+		* this as a malformed packet. This behavior diverges from
+		* VXLAN RFC (RFC7348) which stipulates that bits in reserved
+		* in reserved fields are to be ignored. The approach here
+		* maintains compatbility with previous stack code, and also
+		* is more robust and provides a little more security in
+		* adding extensions to VXLAN.
+		*/
+
+		goto bad_flags;
+	}
+
+	md.vni = vxh->vx_vni;
+	vs->rcv(vs, skb, &md);
 	return 0;
 
 drop:
 	/* Consume bad packet */
 	kfree_skb(skb);
 	return 0;
+bad_flags:
+	pr_debug("invalid vxlan flags=%#x vni=%#x\n",
+		 ntohl(vxh->vx_flags), ntohl(vxh->vx_vni));
 
 error:
 	/* Return non vxlan pkt */
@@ -171,10 +209,31 @@ static struct sk_buff *handle_offloads(struct sk_buff *skb)
 	return ovs_iptunnel_handle_offloads(skb, false, vxlan_gso);
 }
 
+static void vxlan_build_gbp_hdr(struct vxlanhdr *vxh, u32 vxflags,
+				struct vxlan_metadata *md)
+{
+	struct vxlanhdr_gbp *gbp;
+
+	if (!md->gbp)
+		return;
+
+	gbp = (struct vxlanhdr_gbp *)vxh;
+	vxh->vx_flags |= htonl(VXLAN_HF_GBP);
+
+	if (md->gbp & VXLAN_GBP_DONT_LEARN)
+		gbp->dont_learn = 1;
+
+	if (md->gbp & VXLAN_GBP_POLICY_APPLIED)
+		gbp->policy_applied = 1;
+
+	gbp->policy_id = htons(md->gbp & VXLAN_GBP_ID_MASK);
+}
+
 int vxlan_xmit_skb(struct vxlan_sock *vs,
 		   struct rtable *rt, struct sk_buff *skb,
 		   __be32 src, __be32 dst, __u8 tos, __u8 ttl, __be16 df,
-		   __be16 src_port, __be16 dst_port, __be32 vni)
+		   __be16 src_port, __be16 dst_port,
+		   struct vxlan_metadata *md, bool xnet, u32 vxflags)
 {
 	struct vxlanhdr *vxh;
 	struct udphdr *uh;
@@ -183,7 +242,7 @@ int vxlan_xmit_skb(struct vxlan_sock *vs,
 
 	min_headroom = LL_RESERVED_SPACE(rt_dst(rt).dev) + rt_dst(rt).header_len
 			+ VXLAN_HLEN + sizeof(struct iphdr)
-			+ (vlan_tx_tag_present(skb) ? VLAN_HLEN : 0);
+			+ (skb_vlan_tag_present(skb) ? VLAN_HLEN : 0);
 
 	/* Need space for new headers (invalidates iph ptr) */
 	err = skb_cow_head(skb, min_headroom);
@@ -192,10 +251,10 @@ int vxlan_xmit_skb(struct vxlan_sock *vs,
 		return err;
 	}
 
-	if (vlan_tx_tag_present(skb)) {
+	if (skb_vlan_tag_present(skb)) {
 		if (unlikely(!vlan_insert_tag_set_proto(skb,
 							skb->vlan_proto,
-							vlan_tx_tag_get(skb))))
+							skb_vlan_tag_get(skb))))
 			return -ENOMEM;
 
 		vlan_set_tci(skb, 0);
@@ -204,8 +263,11 @@ int vxlan_xmit_skb(struct vxlan_sock *vs,
 	skb_reset_inner_headers(skb);
 
 	vxh = (struct vxlanhdr *) __skb_push(skb, sizeof(*vxh));
-	vxh->vx_flags = htonl(VXLAN_FLAGS);
-	vxh->vx_vni = vni;
+	vxh->vx_flags = htonl(VXLAN_HF_VNI);
+	vxh->vx_vni = md->vni;
+
+	if (vxflags & VXLAN_F_GBP)
+		vxlan_build_gbp_hdr(vxh, vxflags, md);
 
 	__skb_push(skb, sizeof(*uh));
 	skb_reset_transport_header(skb);
@@ -224,7 +286,7 @@ int vxlan_xmit_skb(struct vxlan_sock *vs,
 		return PTR_ERR(skb);
 
 	return iptunnel_xmit(vs->sock->sk, rt, skb, src, dst, IPPROTO_UDP,
-			     tos, ttl, df, false);
+			     tos, ttl, df, xnet);
 }
 
 static void rcu_free_vs(struct rcu_head *rcu)
@@ -243,7 +305,7 @@ static void vxlan_del_work(struct work_struct *work)
 }
 
 static struct vxlan_sock *vxlan_socket_create(struct net *net, __be16 port,
-					      vxlan_rcv_t *rcv, void *data)
+					      vxlan_rcv_t *rcv, void *data, u32 flags)
 {
 	struct vxlan_sock *vs;
 	struct sock *sk;
@@ -285,6 +347,7 @@ static struct vxlan_sock *vxlan_socket_create(struct net *net, __be16 port,
 	}
 	vs->rcv = rcv;
 	vs->data = data;
+	vs->flags = (flags & VXLAN_F_RCV_FLAGS);
 
 	/* Disable multicast loopback */
 	inet_sk(sk)->mc_loop = 0;
@@ -301,7 +364,7 @@ struct vxlan_sock *vxlan_sock_add(struct net *net, __be16 port,
 				  vxlan_rcv_t *rcv, void *data,
 				  bool no_share, u32 flags)
 {
-	return vxlan_socket_create(net, port, rcv, data);
+	return vxlan_socket_create(net, port, rcv, data, flags);
 }
 
 void vxlan_sock_release(struct vxlan_sock *vs)
@@ -312,4 +375,4 @@ void vxlan_sock_release(struct vxlan_sock *vs)
 	queue_work(system_wq, &vs->del_work);
 }
 
-#endif /* 3.12 */
+#endif /* !USE_UPSTREAM_VXLAN */
