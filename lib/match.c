@@ -40,7 +40,6 @@ void
 match_wc_init(struct match *match, const struct flow *flow)
 {
     match->flow = *flow;
-
     flow_wildcards_init_for_packet(&match->wc, flow);
     WC_MASK_FIELD(&match->wc, regs);
     WC_MASK_FIELD(&match->wc, metadata);
