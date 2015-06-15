@@ -3418,13 +3418,20 @@ parse_ethertype(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
         VLOG_WARN("parse_ethertype: should not be hit");
         if (!is_mask) {
             if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_IPV4)) {
+                VLOG_WARN("parse_ethertype: should not be hit: ipv4");
                 flow->dl_type = htons(ETH_TYPE_IP);
             } else if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_IPV6)) {
+                VLOG_WARN("parse_ethertype: should not be hit: ipv6");
+                flow->dl_type = htons(ETH_TYPE_IPV6);
+            } else if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_MPLS)) {
+                VLOG_WARN("parse_ethertype: should not be hit: mpls");
                 flow->dl_type = htons(ETH_TYPE_IPV6);
             } else {
+                VLOG_WARN("parse_ethertype: should not be hit: other");
                 flow->dl_type = htons(FLOW_DL_TYPE_NONE);
             }
         } else if (ntohs(src_flow->dl_type) < ETH_TYPE_MIN) {
+                VLOG_WARN("parse_ethertype: should not be hit: dl_type < ETH_MIN_TYPE");
             /* See comments in odp_flow_key_from_flow__(). */
             VLOG_ERR_RL(&rl, "mask expected for non-Ethernet II frame");
             return false;
