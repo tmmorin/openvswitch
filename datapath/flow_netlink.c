@@ -794,7 +794,8 @@ static int metadata_from_nlattrs(struct sw_flow_match *match,  u64 *attrs,
 		} else {
 			eth_type = nla_get_be16(a[OVS_KEY_ATTR_PACKET_ETHERTYPE]);
 			is_layer3 = ((eth_type == htons(ETH_P_IP)) ||
-				    (eth_type == htons(ETH_P_IPV6)));
+				    (eth_type == htons(ETH_P_IPV6))||
+				     eth_p_mpls(eth_type) );
 		}
 		SW_FLOW_KEY_PUT(match, eth.type, eth_type, is_mask);
 	}
