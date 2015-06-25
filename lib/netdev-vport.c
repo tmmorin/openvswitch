@@ -148,7 +148,9 @@ netdev_vport_is_layer3(const struct netdev *dev)
 {
     const char *type = netdev_get_type(dev);
 
-    return (!strcmp("lisp", type));
+    return (!strcmp("lisp", type) ||
+            ( !strcmp("gre", type) && get_netdev_tunnel_config(dev)->l3port)
+           );
 }
 
 static bool
@@ -461,6 +463,7 @@ set_tunnel_config(struct netdev *dev_, const struct smap *args)
     needs_dst_port = netdev_vport_needs_dst_port(dev_);
     tnl_cfg.ipsec = strstr(type, "ipsec");
     tnl_cfg.dont_fragment = true;
+    tnl_cfg.l3port = false;
 
     SMAP_FOR_EACH (node, args) {
         if (!strcmp(node->key, "remote_ip")) {
@@ -515,6 +518,10 @@ set_tunnel_config(struct netdev *dev_, const struct smap *args)
         } else if (!strcmp(node->key, "df_default")) {
             if (!strcmp(node->value, "false")) {
                 tnl_cfg.dont_fragment = false;
+            }
+        } else if (!strcmp(node->key, "l3port")) {
+	    if (!strcmp(node->value, "true")) {
+                tnl_cfg.l3port = true;
             }
         } else if (!strcmp(node->key, "peer_cert") && tnl_cfg.ipsec) {
             if (smap_get(args, "certificate")) {
@@ -709,6 +716,10 @@ get_tunnel_config(const struct netdev *dev, struct smap *args)
 
     if (!tnl_cfg.dont_fragment) {
         smap_add(args, "df_default", "false");
+    }
+
+    if (tnl_cfg.l3port) {
+        smap_add(args, "l3port", "true");
     }
 
     return 0;
