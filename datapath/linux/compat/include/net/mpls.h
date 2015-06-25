@@ -34,6 +34,6 @@ static inline bool eth_p_mpls(__be16 eth_type)
  */
 static inline unsigned char *skb_mpls_header(struct sk_buff *skb)
 {
-	return skb_mac_header(skb) + skb->mac_len;
+	return skb->mac_len ? skb_mac_header(skb) + skb->mac_len : skb->data;
 }
 #endif /* _NET_MPLS_WRAPPER_H */

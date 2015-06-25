@@ -569,6 +569,8 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	packet->mark = flow->key.phy.skb_mark;
 	packet->protocol = flow->key.eth.type;
 
+	skb_reset_mac_len(packet);
+
 	rcu_read_lock();
 	dp = get_dp_rcu(sock_net(skb->sk), ovs_header->dp_ifindex);
 	err = -ENODEV;

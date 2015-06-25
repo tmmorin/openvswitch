@@ -129,16 +129,21 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	struct ethhdr *hdr;
 
 	/* Networking stack do not allow simultaneous Tunnel and MPLS GSO. */
-	if (skb_encapsulation(skb))
+	if (skb_encapsulation(skb)) {
+		printk(KERN_WARNING "push_mpls: Networking stack do not allow simultaneous Tunnel and MPLS GSO\n");
 		return -ENOTSUPP;
+	}
 
 	if (skb_cow_head(skb, MPLS_HLEN) < 0)
 		return -ENOMEM;
 
 	skb_push(skb, MPLS_HLEN);
-	memmove(skb_mac_header(skb) - MPLS_HLEN, skb_mac_header(skb),
-		skb->mac_len);
-	skb_reset_mac_header(skb);
+	if (skb->mac_len) {
+		printk(KERN_WARNING "push_mpls: push_mpls with mac_len set\n");
+		memmove(skb_mac_header(skb) - MPLS_HLEN, skb_mac_header(skb),
+			skb->mac_len);
+		skb_reset_mac_header(skb);
+	}
 
 	new_mpls_lse = (__be32 *)skb_mpls_header(skb);
 	*new_mpls_lse = mpls->mpls_lse;
@@ -146,9 +151,11 @@ static int push_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	if (skb->ip_summed == CHECKSUM_COMPLETE)
 		skb->csum = csum_add(skb->csum, csum_partial(new_mpls_lse,
 							     MPLS_HLEN, 0));
+	if (skb->mac_len) {
+		hdr = eth_hdr(skb);
+		hdr->h_proto = mpls->mpls_ethertype;
+	}
 
-	hdr = eth_hdr(skb);
-	hdr->h_proto = mpls->mpls_ethertype;
 	if (!ovs_skb_get_inner_protocol(skb))
 		ovs_skb_set_inner_protocol(skb, skb->protocol);
 	skb->protocol = mpls->mpls_ethertype;
@@ -178,12 +185,18 @@ static int pop_mpls(struct sk_buff *skb, struct sw_flow_key *key,
 	__skb_pull(skb, MPLS_HLEN);
 	skb_reset_mac_header(skb);
 
-	/* skb_mpls_header() is used to locate the ethertype
-	 * field correctly in the presence of VLAN tags.
+	if (skb->mac_len) {
+	       /* skb_mpls_header() is used to locate the ethertype
+		* field correctly in the presence of VLAN tags.
+		*/
+	       hdr = (struct ethhdr *)(skb_mpls_header(skb) - ETH_HLEN);
+	       hdr->h_proto = ethertype;
+	}
+
+	/* looks incorrect: if skb->protocol is not mpls, should we 
+	 * even be popping in the first place...?
 	 */
-	hdr = (struct ethhdr *)(skb_mpls_header(skb) - ETH_HLEN);
-	hdr->h_proto = ethertype;
-	if (eth_p_mpls(skb->protocol))
+	if (eth_p_mpls(skb->protocol))   
 		skb->protocol = ethertype;
 
 	invalidate_flow_key(key);
@@ -294,7 +307,8 @@ static int push_eth(struct sk_buff *skb, struct sw_flow_key *key,
 
 	skb_push(skb, ETH_HLEN);
 	skb_reset_mac_header(skb);
-	skb_reset_mac_len(skb);
+	/* using skb_reset_mac_len is not correct for MPLS frames */
+	skb->mac_len = ETH_HLEN;
 
 	ether_addr_copy(eth_hdr(skb)->h_source, ethh->addresses.eth_src);
 	ether_addr_copy(eth_hdr(skb)->h_dest, ethh->addresses.eth_dst);
