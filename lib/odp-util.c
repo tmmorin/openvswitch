@@ -2790,6 +2790,7 @@ parse_odp_key_mask_attr(const char *s, const struct simap *port_names,
     } SCAN_END(OVS_KEY_ATTR_VLAN);
 
     SCAN_SINGLE("eth_type(", ovs_be16, be16, OVS_KEY_ATTR_ETHERTYPE);
+    SCAN_SINGLE("pkt_eth(", ovs_be16, be16, OVS_KEY_ATTR_PACKET_ETHERTYPE);
 
     SCAN_BEGIN("mpls(", struct ovs_key_mpls) {
         SCAN_FIELD("label=", mpls_label, mpls_lse);
@@ -3006,6 +3007,11 @@ odp_flow_key_from_flow__(struct ofpbuf *buf, const struct flow *flow,
     }
 
     if (flow->base_layer == LAYER_3) {
+        if (export_mask) {
+            nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, OVS_BE16_MAX);
+        } else {
+            nl_msg_put_be16(buf, OVS_KEY_ATTR_PACKET_ETHERTYPE, data->dl_type);
+        }
         goto noethernet;
     }
 
@@ -3268,14 +3274,9 @@ odp_key_to_pkt_metadata(const struct nlattr *key, size_t key_len,
             md->base_layer = LAYER_2;
             wanted_attrs &= ~(1u << OVS_KEY_ATTR_ETHERNET);
             break;
-        case OVS_KEY_ATTR_IPV4:
-            md->packet_ethertype = htons(ETH_TYPE_IP);
-            wanted_attrs &= ~(1u << OVS_KEY_ATTR_IPV4);
-            break;
-        case OVS_KEY_ATTR_IPV6:
-            md->packet_ethertype = htons(ETH_TYPE_IPV6);
-            wanted_attrs &= ~(1u << OVS_KEY_ATTR_IPV6);
-            break;
+        case OVS_KEY_ATTR_PACKET_ETHERTYPE:
+            md->packet_ethertype = nl_attr_get_u16(nla);
+            wanted_attrs &= ~(1u << OVS_KEY_ATTR_PACKET_ETHERTYPE);
         default:
             break;
         }
@@ -3445,11 +3446,25 @@ parse_ethertype(const struct nlattr *attrs[OVS_KEY_ATTR_MAX + 1],
             return false;
         }
         *expected_attrs |= UINT64_C(1) << OVS_KEY_ATTR_ETHERTYPE;
+    } else if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_PACKET_ETHERTYPE)) {
+        flow->dl_type = nl_attr_get_be16(attrs[OVS_KEY_ATTR_PACKET_ETHERTYPE]);
+        if (!is_mask && ntohs(flow->dl_type) < ETH_TYPE_MIN) {
+            VLOG_ERR_RL(&rl, "invalid Ethertype %"PRIu16" in flow key",
+                        ntohs(flow->dl_type));
+            return false;
+        }
+        if (is_mask && ntohs(src_flow->dl_type) < ETH_TYPE_MIN &&
+            flow->dl_type != htons(0xffff)) {
+            return false;
+        }
+        *expected_attrs |= UINT64_C(1) << OVS_KEY_ATTR_PACKET_ETHERTYPE;
     } else {
         if (!is_mask) {
             if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_IPV4)) {
                 flow->dl_type = htons(ETH_TYPE_IP);
             } else if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_IPV6)) {
+                flow->dl_type = htons(ETH_TYPE_IPV6);
+            } else if (present_attrs & (UINT64_C(1) << OVS_KEY_ATTR_MPLS)) {
                 flow->dl_type = htons(ETH_TYPE_IPV6);
             } else {
                 flow->dl_type = htons(FLOW_DL_TYPE_NONE);

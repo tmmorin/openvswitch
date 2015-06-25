@@ -385,22 +385,6 @@ invalid:
     return false;
 }
 
-/* Determines IP version if a layer 3 packet */
-static ovs_be16
-get_l3_eth_type(struct dp_packet *packet)
-{
-    struct ip_header *ip = dp_packet_l3(packet);
-    int ip_ver = IP_VER(ip->ip_ihl_ver);
-    switch (ip_ver) {
-    case 4:
-        return htons(ETH_TYPE_IP);
-    case 6:
-        return htons(ETH_TYPE_IPV6);
-    default:
-        return 0;
-    }
-}
-
 /* Initializes 'flow' members from 'packet' and 'md'.  Expects packet->frame
  * pointer to be equal to dp_packet_data(packet), and packet->l3_ofs to be set
  * to 0 for layer 3 packets.
@@ -489,32 +473,31 @@ miniflow_extract(struct dp_packet *packet, struct miniflow *dst)
             miniflow_push_be16(mf, vlan_tci, vlan_tci);
         }
 
-        /* Parse mpls. */
-        if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
-            int count;
-            const void *mpls = data;
-
-            packet->l2_5_ofs = (char *)data - frame;
-            count = parse_mpls(&data, &size);
-            miniflow_push_words_32(mf, mpls_lse, mpls, count);
-        }
-
         /* Network layer. */
         packet->l3_ofs = (char *)data - frame;
-    } else if (base_layer == LAYER_3) {
+    } else if (base_layer == LAYER_3 && md) {
 	uint8_t macs[2 * ETH_ADDR_LEN] = {
 	    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	    0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 	};
-
 	miniflow_push_macs(mf, dl_dst, macs);
 
-        /* We assume L3 packets are either IPv4 or IPv6 */
-        dl_type = get_l3_eth_type(packet);
+        dl_type = md->packet_ethertype;
+
         miniflow_push_be16(mf, dl_type, dl_type);
         miniflow_push_be16(mf, vlan_tci, 0);
     } else {
 	OVS_NOT_REACHED();
+    }
+
+    /* Parse mpls. */
+    if (OVS_UNLIKELY(eth_type_mpls(dl_type))) {
+        int count;
+        const void *mpls = data;
+
+        packet->l2_5_ofs = (char *)data - frame;
+        count = parse_mpls(&data, &size);
+        miniflow_push_words_32(mf, mpls_lse, mpls, count);
     }
 
     nw_frag = 0;
