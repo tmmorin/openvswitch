@@ -338,6 +338,8 @@ push_mpls(struct dp_packet *packet, ovs_be16 ethtype, ovs_be32 lse)
 
     set_ethertype(packet, ethtype);
 
+    /*FIXME TM: need to work when packet is not ETH*/
+
     /* Push new MPLS shim header onto packet. */
     len = packet->l2_5_ofs;
     header = dp_packet_resize_l2_5(packet, MPLS_HLEN);
@@ -352,6 +354,7 @@ push_mpls(struct dp_packet *packet, ovs_be16 ethtype, ovs_be32 lse)
 void
 pop_mpls(struct dp_packet *packet, ovs_be16 ethtype)
 {
+    /*FIXME TM: need to work when packet is not MPLS/ETH*/
     if (is_mpls(packet)) {
         struct mpls_hdr *mh = dp_packet_l2_5(packet);
         size_t len = packet->l2_5_ofs;
